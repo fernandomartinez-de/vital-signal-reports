@@ -1,0 +1,35 @@
+name: Ingest New Lab PDFs
+
+on:
+  schedule:
+    - cron: '0 8 * * *'  # 8am UTC = 2am CDT / 3am EDT daily
+  workflow_dispatch:      # manual trigger
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install \
+            psycopg2-binary \
+            anthropic \
+            pdfplumber \
+            google-auth \
+            google-api-python-client \
+            google-auth-httplib2
+
+      - name: Run ingestion
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GDRIVE_CREDENTIALS: ${{ secrets.GDRIVE_CREDENTIALS }}
+        run: python ingest_labs_gdrive.py
