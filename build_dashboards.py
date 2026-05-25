@@ -153,7 +153,7 @@ def kj_to_kcal(kj):
     """WHOOP reports energy in kilojoules. Convert to kilocalories."""
     if kj is None:
         return None
-    return round(kj / 4.184, 1)
+    return round(float(kj) / 4.184, 1)
 
 
 def ms_to_min(ms):
@@ -165,7 +165,7 @@ def ms_to_min(ms):
 def safe_round(x, digits=2):
     if x is None or (isinstance(x, float) and math.isnan(x)):
         return None
-    return round(x, digits)
+    return round(float(x), digits)
 
 
 def rolling_mean(values, window):
