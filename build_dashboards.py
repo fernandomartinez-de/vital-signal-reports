@@ -511,15 +511,31 @@ def build_payload(raw, start_date, end_date):
 # =============================================================================
 
 def render_template(template_path, payload, output_path):
-    """Inject JSON payload into template's __DATA_PLACEHOLDER__ token."""
+    """Inject JSON payload into dashboard's vital-data script tag."""
     if not template_path.exists():
         sys.exit(f"ERROR: template not found: {template_path}")
-    template = template_path.read_text()
-    if "__DATA_PLACEHOLDER__" not in template:
-        sys.exit(f"ERROR: __DATA_PLACEHOLDER__ token missing in {template_path.name}")
+    template = template_path.read_text(encoding='utf-8')
     payload_json = json.dumps(payload, separators=(",", ":"), default=str)
-    rendered = template.replace("__DATA_PLACEHOLDER__", payload_json)
-    output_path.write_text(rendered)
+
+    # Strategy 1: replace __DATA_PLACEHOLDER__ token (template mode)
+    if "__DATA_PLACEHOLDER__" in template:
+        rendered = template.replace("__DATA_PLACEHOLDER__", payload_json)
+
+    # Strategy 2: replace contents of <script id="vital-data"> tag (live dashboard mode)
+    elif '<script id="vital-data"' in template:
+        import re
+        rendered = re.sub(
+            r'(<script id="vital-data"[^>]*>)(.*?)(</script>)',
+            lambda m: m.group(1) + payload_json + m.group(3),
+            template,
+            flags=re.DOTALL
+        )
+        if rendered == template:
+            sys.exit(f"ERROR: could not replace vital-data content in {template_path.name}")
+    else:
+        sys.exit(f"ERROR: no injection point found in {template_path.name}")
+
+    output_path.write_text(rendered, encoding='utf-8')
     print(f"  wrote {output_path.name} ({len(rendered):,} bytes)")
 
 
@@ -558,12 +574,12 @@ def main():
     # 3. Render both dashboards
     print("Rendering dashboards...")
     render_template(
-        SCRIPT_DIR / "nutritionist_template.html",
+        SCRIPT_DIR / "martinez_nutritionist_dashboard.html",
         payload,
         SCRIPT_DIR / "martinez_nutritionist_dashboard.html",
     )
     render_template(
-        SCRIPT_DIR / "oncologist_template.html",
+        SCRIPT_DIR / "martinez_oncologist_dashboard.html",
         payload,
         SCRIPT_DIR / "martinez_oncologist_dashboard.html",
     )
