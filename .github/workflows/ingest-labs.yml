@@ -2,12 +2,14 @@ name: Ingest New Lab PDFs
 
 on:
   schedule:
-    - cron: '0 8 * * *'  # 8am UTC = 2am CDT / 3am EDT daily
-  workflow_dispatch:      # manual trigger
+    - cron: '0 8 * * *'
+  workflow_dispatch:
 
 jobs:
   ingest:
     runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
