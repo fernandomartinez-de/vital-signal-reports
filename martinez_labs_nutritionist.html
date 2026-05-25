@@ -1,0 +1,807 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Laboratorios — F. Martínez · Javier</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,500;9..144,600&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+:root {
+  --bg: #f4ede1;
+  --surface: #fbf6ec;
+  --surface-2: #efe6d5;
+  --ink: #1c1d24;
+  --ink-soft: #2d2e36;
+  --muted: #6b6256;
+  --muted-2: #8a8275;
+  --line: rgba(28,29,36,0.10);
+  --line-soft: rgba(28,29,36,0.06);
+  --navy: #1f3a5f;
+  --sage: #5a8a6b;
+  --sage-deep: #426650;
+  --terracotta: #b85c38;
+  --terracotta-soft: #d28a6c;
+  --gold: #c89f3c;
+  --plum: #6e3a5c;
+  --flag-h: #b85c38;
+  --flag-l: #1f3a5f;
+  --flag-normal: #5a8a6b;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+html,body { background:var(--bg); color:var(--ink); font-family:'Plus Jakarta Sans',sans-serif; font-size:14px; line-height:1.55; -webkit-font-smoothing:antialiased; }
+
+.app { display:grid; grid-template-columns:280px 1fr; min-height:100vh; }
+aside.sidebar { background:var(--surface); border-right:1px solid var(--line); padding:32px 28px; position:sticky; top:0; height:100vh; overflow-y:auto; }
+main.content { padding:48px 56px 80px; max-width:1200px; }
+
+.brand-mark { font-family:'Fraunces',serif; font-weight:500; font-size:22px; letter-spacing:-0.02em; }
+.brand-sub { font-family:'Fraunces',serif; font-style:italic; font-size:13px; color:var(--muted); margin-bottom:36px; font-weight:300; }
+.side-section { margin-bottom:28px; }
+.side-label { font-family:'JetBrains Mono',monospace; font-size:10px; letter-spacing:0.12em; text-transform:uppercase; color:var(--muted-2); margin-bottom:10px; padding-bottom:6px; border-bottom:1px solid var(--line); }
+.patient-info { font-size:13px; line-height:1.7; }
+.patient-info .row { display:flex; justify-content:space-between; padding:2px 0; }
+.patient-info .k { color:var(--muted); }
+.patient-info .v { color:var(--ink); font-weight:500; }
+.nav { list-style:none; }
+.nav li { font-size:13px; padding:7px 0 7px 10px; cursor:pointer; color:var(--muted); border-left:2px solid transparent; margin-left:-10px; transition:color 0.15s; }
+.nav li:hover { color:var(--ink); }
+.nav li.current { color:var(--ink); border-left-color:var(--terracotta); font-weight:500; }
+.nav li .num { font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--muted-2); margin-right:8px; }
+.side-foot { padding-top:20px; font-size:11px; color:var(--muted-2); font-family:'JetBrains Mono',monospace; }
+
+.hero { margin-bottom:48px; padding-bottom:28px; border-bottom:1px solid var(--line); }
+.hero-eyebrow { font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:0.14em; text-transform:uppercase; color:var(--terracotta); margin-bottom:14px; display:flex; align-items:center; gap:14px; }
+.hero-eyebrow::before { content:""; width:24px; height:1px; background:var(--terracotta); }
+.hero h1 { font-family:'Fraunces',serif; font-weight:400; font-size:40px; line-height:1.05; letter-spacing:-0.02em; margin-bottom:16px; max-width:680px; }
+.hero h1 em { font-style:italic; font-weight:300; color:var(--muted); }
+.hero-meta { display:flex; gap:28px; font-size:13px; color:var(--muted); font-family:'JetBrains Mono',monospace; flex-wrap:wrap; }
+.hero-meta strong { color:var(--ink); }
+
+.kpi-row { display:grid; grid-template-columns:repeat(5,1fr); gap:1px; background:var(--line); border:1px solid var(--line); margin-bottom:48px; }
+.kpi { background:var(--surface); padding:20px 18px; }
+.kpi-label { font-family:'JetBrains Mono',monospace; font-size:10px; letter-spacing:0.10em; text-transform:uppercase; color:var(--muted-2); margin-bottom:8px; }
+.kpi-value { font-family:'Fraunces',serif; font-weight:400; font-size:28px; letter-spacing:-0.015em; line-height:1; font-variant-numeric:tabular-nums; }
+.kpi-unit { font-family:'Plus Jakarta Sans',sans-serif; font-size:11px; color:var(--muted); margin-left:3px; }
+.kpi-date { margin-top:6px; font-size:10px; font-family:'JetBrains Mono',monospace; color:var(--muted); }
+.kpi-flag { display:inline-block; font-size:9px; font-family:'JetBrains Mono',monospace; letter-spacing:0.08em; padding:2px 6px; margin-top:4px; text-transform:uppercase; }
+.kpi-flag.H { background:rgba(184,92,56,0.12); color:var(--flag-h); }
+.kpi-flag.L { background:rgba(31,58,95,0.10); color:var(--flag-l); }
+.kpi-flag.normal { background:rgba(90,138,107,0.10); color:var(--flag-normal); }
+
+.section { margin-bottom:64px; scroll-margin-top:24px; }
+.section-head { margin-bottom:24px; }
+.section-num { font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:0.14em; color:var(--terracotta); margin-bottom:6px; }
+.section h2 { font-family:'Fraunces',serif; font-weight:400; font-size:28px; letter-spacing:-0.018em; line-height:1.15; margin-bottom:10px; }
+.section h2 em { font-style:italic; font-weight:300; color:var(--muted); }
+.section-lede { font-family:'Fraunces',serif; font-size:15px; font-weight:300; line-height:1.6; color:var(--ink-soft); max-width:640px; }
+
+.card { background:var(--surface); border:1px solid var(--line); padding:24px; margin-bottom:14px; }
+.card-header { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:4px; }
+.card-title { font-family:'Fraunces',serif; font-weight:500; font-size:16px; letter-spacing:-0.01em; }
+.card-meta { font-family:'JetBrains Mono',monospace; font-size:10px; letter-spacing:0.08em; text-transform:uppercase; color:var(--muted-2); }
+.card-sub { font-size:12px; color:var(--muted); margin-bottom:18px; font-style:italic; }
+.card-grid-2 { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+.card-grid-3 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:14px; }
+.chart-wrap { position:relative; width:100%; height:200px; }
+.chart-wrap.tall { height:260px; }
+.chart-wrap.compact { height:150px; }
+
+.stat-strip { display:grid; grid-template-columns:repeat(auto-fit,minmax(100px,1fr)); gap:24px; margin-top:20px; padding-top:18px; border-top:1px solid var(--line-soft); }
+.s-l { font-family:'JetBrains Mono',monospace; font-size:9px; letter-spacing:0.12em; text-transform:uppercase; color:var(--muted-2); margin-bottom:4px; }
+.s-v { font-family:'Fraunces',serif; font-size:20px; font-weight:400; line-height:1; font-variant-numeric:tabular-nums; }
+.s-u { font-size:11px; color:var(--muted); margin-left:2px; }
+
+.flag-badge { display:inline-block; font-size:9px; font-family:'JetBrains Mono',monospace; padding:1px 5px; border-radius:2px; }
+.flag-badge.H { background:rgba(184,92,56,0.15); color:var(--flag-h); }
+.flag-badge.L { background:rgba(31,58,95,0.12); color:var(--flag-l); }
+.flag-badge.normal { background:rgba(90,138,107,0.12); color:var(--flag-normal); }
+
+.stimulated-note { font-size:11px; font-family:'JetBrains Mono',monospace; color:var(--gold); margin-top:6px; }
+
+table.ref-table { width:100%; border-collapse:collapse; font-size:12px; }
+table.ref-table th { text-align:left; padding:8px 12px 8px 0; font-family:'JetBrains Mono',monospace; font-size:9px; letter-spacing:0.10em; text-transform:uppercase; color:var(--muted-2); border-bottom:1px solid var(--ink); }
+table.ref-table th:not(:first-child) { text-align:right; }
+table.ref-table td { padding:8px 12px 8px 0; border-bottom:1px solid var(--line-soft); vertical-align:middle; }
+table.ref-table td:not(:first-child) { text-align:right; font-family:'JetBrains Mono',monospace; font-variant-numeric:tabular-nums; }
+table.ref-table tr:hover td { background:var(--surface-2); }
+
+.report-foot { margin-top:60px; padding-top:20px; border-top:1px solid var(--line); display:flex; justify-content:space-between; font-family:'JetBrains Mono',monospace; font-size:10px; letter-spacing:0.08em; text-transform:uppercase; color:var(--muted-2); }
+
+@media (max-width:960px) {
+  .app { grid-template-columns:1fr; }
+  aside.sidebar { position:relative; height:auto; }
+  main.content { padding:28px 20px 60px; }
+  .kpi-row { grid-template-columns:repeat(2,1fr); }
+  .card-grid-2,.card-grid-3 { grid-template-columns:1fr; }
+  .hero h1 { font-size:28px; }
+}
+@media print {
+  aside.sidebar { display:none; }
+  .app { grid-template-columns:1fr; }
+  main.content { padding:20px; }
+}
+</style>
+</head>
+<body>
+<div class="app">
+<aside class="sidebar">
+  <div class="brand-mark">Vital Signal</div>
+  <div class="brand-sub">Laboratorios · atención nutricional</div>
+  <div class="side-section">
+    <div class="side-label">Paciente</div>
+    <div class="patient-info">
+      <div class="row"><span class="k">Nombre</span><span class="v">F. Martínez</span></div>
+      <div class="row"><span class="k">Médico</span><span class="v">Javier</span></div>
+      <div class="row"><span class="k">Periodo</span><span class="v">2018 – 2026</span></div>
+      <div class="row"><span class="k">Generado</span><span class="v">25 may 2026</span></div>
+    </div>
+  </div>
+  <div class="side-section">
+    <div class="side-label">Secciones</div>
+    <ul class="nav">
+      <li class="current" data-target="tiroideo"><span class="num">01</span>Panel tiroideo</li>
+      <li data-target="metabolico"><span class="num">02</span>Glucémico y metabólico</li>
+      <li data-target="lipidico"><span class="num">03</span>Perfil lipídico</li>
+      <li data-target="inmune"><span class="num">04</span>Inmune y vitaminas</li>
+      <li data-target="hemograma"><span class="num">05</span>Biometría hemática</li>
+      <li data-target="referencia"><span class="num">06</span>Tabla de referencia</li>
+    </ul>
+  </div>
+  <div class="side-foot">Datos: Quest MX · Labcorp NY<br>Hospital Ángeles Lomas · Quest USA</div>
+</aside>
+
+<main class="content">
+  <header class="hero">
+    <div class="hero-eyebrow">Resultados de Laboratorio · Contexto Nutricional e Inmunológico</div>
+    <h1>Seguimiento longitudinal de marcadores, <em>2018 a la fecha</em>.</h1>
+    <div class="hero-meta">
+      <span>Período <strong>2018 – 2026</strong></span>
+      <span>Última muestra <strong id="ultima-fecha">—</strong></span>
+      <span>Total marcadores <strong id="total-marcadores">—</strong></span>
+    </div>
+  </header>
+
+  <div class="kpi-row" id="kpi-row"></div>
+
+  <!-- 01 TIROIDEO -->
+  <section class="section" id="tiroideo">
+    <div class="section-head">
+      <div class="section-num">01 / Panel tiroideo</div>
+      <h2>Estado tiroideo <em>a lo largo del tiempo</em>.</h2>
+      <p class="section-lede">TSH suprimida intencionalmente como parte del protocolo oncológico. Los valores estimulados con Thyrogen se muestran diferenciados. La Tiroglobulina es el marcador de seguimiento central.</p>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">TSH — evolución completa</div><div class="card-meta">µUI/mL · ref 0.35–4.94</div></div>
+      <div class="card-sub">Valores en supresión por protocolo. Círculos abiertos = estimulación con Thyrogen.</div>
+      <div class="chart-wrap tall"><canvas id="ch-tsh"></canvas></div>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">Tiroglobulina — marcador de seguimiento</div><div class="card-meta">ng/mL</div></div>
+      <div class="card-sub">Tiroglobulina basal e inducida por Thyrogen. Tendencia descendente es favorable.</div>
+      <div class="chart-wrap tall"><canvas id="ch-tg"></canvas></div>
+      <div class="stimulated-note">★ Valor estimulado con Thyrogen: mar 2026 = 9.96 ng/mL</div>
+    </div>
+    <div class="card-grid-2">
+      <div class="card">
+        <div class="card-header"><div class="card-title">T3 Libre</div><div class="card-meta">pg/mL · ref 1.58–3.91</div></div>
+        <div class="chart-wrap compact"><canvas id="ch-t3l"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="card-header"><div class="card-title">T4 Libre</div><div class="card-meta">ng/dL · ref 0.70–1.48</div></div>
+        <div class="chart-wrap compact"><canvas id="ch-t4l"></canvas></div>
+      </div>
+    </div>
+    <div class="card-grid-2">
+      <div class="card">
+        <div class="card-header"><div class="card-title">Anti-Tiroglobulina (AntiTg)</div><div class="card-meta">IU/mL · ref &lt;4.1</div></div>
+        <div class="chart-wrap compact"><canvas id="ch-antitg"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="card-header"><div class="card-title">Anti-TPO</div><div class="card-meta">UI/mL · ref &lt;5.6</div></div>
+        <div class="chart-wrap compact"><canvas id="ch-antitpo"></canvas></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 02 METABÓLICO -->
+  <section class="section" id="metabolico">
+    <div class="section-head">
+      <div class="section-num">02 / Glucémico y metabólico</div>
+      <h2>Control glucémico e <em>insulinorresistencia</em>.</h2>
+      <p class="section-lede">Glucosa, HbA1c, insulina e índice HOMA-IR. Relevante para microbiota y respuesta inflamatoria.</p>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">Glucosa en ayuno</div><div class="card-meta">mg/dL · ref 70–100</div></div>
+      <div class="chart-wrap"><canvas id="ch-glucosa"></canvas></div>
+      <div class="stat-strip" id="strip-glucosa"></div>
+    </div>
+    <div class="card-grid-3">
+      <div class="card">
+        <div class="card-header"><div class="card-title">HbA1c</div><div class="card-meta">% · ideal &lt;5.7</div></div>
+        <div class="chart-wrap compact"><canvas id="ch-hba1c"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="card-header"><div class="card-title">Insulina</div><div class="card-meta">µUI/mL</div></div>
+        <div class="chart-wrap compact"><canvas id="ch-insulina"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="card-header"><div class="card-title">HOMA-IR</div><div class="card-meta">&lt;1.96 sin resistencia</div></div>
+        <div class="chart-wrap compact"><canvas id="ch-homa"></canvas></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 03 LIPÍDICO -->
+  <section class="section" id="lipidico">
+    <div class="section-head">
+      <div class="section-num">03 / Perfil lipídico</div>
+      <h2>Colesterol y <em>triglicéridos</em>.</h2>
+      <p class="section-lede">LDL elevado de forma consistente. HDL en rango bajo. Triglicéridos con tendencia a mejorar. Relevante para inflamación sistémica.</p>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">Colesterol total, LDL y HDL</div><div class="card-meta">mg/dL</div></div>
+      <div class="chart-wrap tall"><canvas id="ch-lipidos"></canvas></div>
+      <div class="stat-strip" id="strip-lipidos"></div>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">Triglicéridos</div><div class="card-meta">mg/dL · ref &lt;150</div></div>
+      <div class="chart-wrap"><canvas id="ch-trig"></canvas></div>
+    </div>
+  </section>
+
+  <!-- 04 INMUNE -->
+  <section class="section" id="inmune">
+    <div class="section-head">
+      <div class="section-num">04 / Inmune y vitaminas</div>
+      <h2>Soporte inmunológico y <em>micronutrientes</em>.</h2>
+      <p class="section-lede">PCR como marcador de inflamación sistémica. Inmunoglobulinas y Vitamina D, directamente relevantes para el protocolo de microbiota e inmunomodulación.</p>
+    </div>
+    <div class="card-grid-2">
+      <div class="card">
+        <div class="card-header"><div class="card-title">Vitamina D</div><div class="card-meta">ng/mL · suficiente 30–100</div></div>
+        <div class="chart-wrap compact"><canvas id="ch-vitd"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="card-header"><div class="card-title">PCR ultrasensible</div><div class="card-meta">mg/dL · &lt;0.5</div></div>
+        <div class="chart-wrap compact"><canvas id="ch-pcr"></canvas></div>
+      </div>
+    </div>
+    <div class="card-grid-3">
+      <div class="card">
+        <div class="card-header"><div class="card-title">IgA</div><div class="card-meta">mg/dL · ref 66–403</div></div>
+        <div class="chart-wrap compact"><canvas id="ch-iga"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="card-header"><div class="card-title">IgG</div><div class="card-meta">mg/dL · ref 700–1600</div></div>
+        <div class="chart-wrap compact"><canvas id="ch-igg"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="card-header"><div class="card-title">IgM</div><div class="card-meta">mg/dL · ref 40–230</div></div>
+        <div class="chart-wrap compact"><canvas id="ch-igm"></canvas></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 05 HEMOGRAMA -->
+  <section class="section" id="hemograma">
+    <div class="section-head">
+      <div class="section-num">05 / Biometría hemática</div>
+      <h2>Serie roja, blanca <em>y plaquetaria</em>.</h2>
+      <p class="section-lede">Seguimiento de biometría completa. Leucocitos y fórmula diferencial relevantes para estado inmune basal.</p>
+    </div>
+    <div class="card-grid-3">
+      <div class="card">
+        <div class="card-header"><div class="card-title">Hemoglobina</div><div class="card-meta">g/dL · ref 14–18</div></div>
+        <div class="chart-wrap compact"><canvas id="ch-hgb"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="card-header"><div class="card-title">Leucocitos</div><div class="card-meta">10³/µL · ref 3.8–11.2</div></div>
+        <div class="chart-wrap compact"><canvas id="ch-wbc"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="card-header"><div class="card-title">Plaquetas</div><div class="card-meta">10³/µL · ref 130–450</div></div>
+        <div class="chart-wrap compact"><canvas id="ch-plt"></canvas></div>
+      </div>
+    </div>
+    <div class="card-grid-2">
+      <div class="card">
+        <div class="card-header"><div class="card-title">Neutrófilos %</div><div class="card-meta">% · ref 40–70</div></div>
+        <div class="chart-wrap compact"><canvas id="ch-neutro"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="card-header"><div class="card-title">Linfocitos %</div><div class="card-meta">% · ref 20–40</div></div>
+        <div class="chart-wrap compact"><canvas id="ch-linfo"></canvas></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 06 REFERENCIA -->
+  <section class="section" id="referencia">
+    <div class="section-head">
+      <div class="section-num">06 / Tabla de referencia</div>
+      <h2>Todos los marcadores — <em>última medición</em>.</h2>
+    </div>
+    <div class="card">
+      <table class="ref-table" id="ref-table">
+        <thead><tr>
+          <th>Marcador</th><th>Fecha</th><th>Valor</th><th>Unidad</th><th>Ref. mín</th><th>Ref. máx</th><th>Flag</th><th>Proveedor</th>
+        </tr></thead>
+        <tbody id="ref-tbody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <div class="report-foot">
+    <span>Vital Signal · Laboratorios · Javier Nutriólogo</span>
+    <span>Generado 25 may 2026</span>
+  </div>
+</main>
+</div>
+
+<script id="lab-data" type="application/json">{"meta":{"paciente":"Fernando Mart\u00ednez","medico":"Javier (Nutri\u00f3logo)","generado":"25 may 2026","periodo":"2018 \u2013 2026"},"tiroideo":{"TSH":[{"fecha":"2019-03-18","marcador":"TSH","valor":174.95,"unidad":"uUI/mL","ref_min":0.34,"ref_max":5.6,"flag":"H","proveedor":"Quest MX","estimulada":false,"panel":"TIROIDEO II, PERFIL"},{"fecha":"2019-04-12","marcador":"TSH","valor":95.2,"unidad":"uUI/mL","ref_min":0.34,"ref_max":5.6,"flag":"H","proveedor":"Quest MX","estimulada":false,"panel":"TIROIDEO"},{"fecha":"2019-05-15","marcador":"TSH","valor":79.387,"unidad":"uUI/mL","ref_min":0.34,"ref_max":5.6,"flag":"H","proveedor":"Quest MX","estimulada":false,"panel":"TIROIDEO"},{"fecha":"2019-06-02","marcador":"TSH","valor":192.771,"unidad":"uUI/mL","ref_min":0.34,"ref_max":5.6,"flag":"H","proveedor":"Quest MX","estimulada":false,"panel":"TIROIDEO"},{"fecha":"2019-09-13","marcador":"TSH","valor":1.682,"unidad":"uUI/mL","ref_min":0.34,"ref_max":5.6,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"TIROIDEO"},{"fecha":"2019-12-24","marcador":"TSH","valor":0.023,"unidad":"uUI/mL","ref_min":0.34,"ref_max":5.6,"flag":"L","proveedor":"Quest MX","estimulada":false,"panel":"PROMO TIROIDES Y QS3 PERFIL TIROIDEO I PERFIL - (Quimioluminiscencia) [Dx/800-602841_FRO]"},{"fecha":"2020-05-25","marcador":"TSH","valor":0.47,"unidad":"uUI/mL","ref_min":0.34,"ref_max":5.6,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"PROMO TIROIDES Y QS3 PERFIL - TIROIDEO I PERFIL (Quimioluminiscencia)"},{"fecha":"2020-06-15","marcador":"TSH","valor":0.06,"unidad":"uUI/mL","ref_min":0.34,"ref_max":5.6,"flag":"L","proveedor":"Quest MX","estimulada":false,"panel":"PROMO TIROIDES Y QS3 PERFIL TIROIDEO I PERFIL - (Quimioluminiscencia)"},{"fecha":"2021-06-07","marcador":"TSH","valor":0.005,"unidad":"uUI/mL","ref_min":0.34,"ref_max":5.6,"flag":"L","proveedor":"Quest MX","estimulada":false,"panel":"PROMOCION TIROIDEO II + QS 3 ELEMENTOS - TIROIDEO PERFIL"},{"fecha":"2021-12-22","marcador":"TSH","valor":0.007,"unidad":"uUI/mL","ref_min":0.34,"ref_max":5.6,"flag":"L","proveedor":"Quest MX","estimulada":false,"panel":"PROMO TIROIDES Y QS3 PERFIL - TIROIDEO I PERFIL"},{"fecha":"2022-03-09","marcador":"TSH","valor":0.01,"unidad":"mIU/L","ref_min":0.4,"ref_max":4.5,"flag":"L","proveedor":"Quest USA","estimulada":false,"panel":"TSH W/REFLEX TO FT4"},{"fecha":"2023-07-12","marcador":"TSH","valor":0.063,"unidad":"uUI/mL","ref_min":0.34,"ref_max":5.6,"flag":"L","proveedor":"Quest MX","estimulada":false,"panel":"TIROIDEO I PERFIL"},{"fecha":"2024-10-08","marcador":"TSH","valor":0.085,"unidad":"uUI/mL","ref_min":0.34,"ref_max":5.6,"flag":"L","proveedor":"Quest MX","estimulada":false,"panel":"PROMOCION TIROIDEO II + QS 3 ELEMENTOS - TIROIDEO PERFIL"},{"fecha":"2025-08-11","marcador":"TSH","valor":0.024,"unidad":"uIU/mL","ref_min":0.45,"ref_max":4.5,"flag":"L","proveedor":"Labcorp NY","estimulada":false,"panel":"TSH"},{"fecha":"2025-10-24","marcador":"TSH","valor":0.105,"unidad":"uIU/mL","ref_min":0.45,"ref_max":4.5,"flag":"L","proveedor":"Labcorp NY","estimulada":false,"panel":"tiroideo"},{"fecha":"2026-04-17","marcador":"TSH","valor":0.009,"unidad":"uUI/mL","ref_min":0.34,"ref_max":5.6,"flag":"L","proveedor":"Quest MX","estimulada":false,"panel":"TIROIDEO PERFIL"}],"TSH_estimulada":[{"fecha":"2020-04-17","marcador":"TSH","valor":1.529,"unidad":"uUI/mL","ref_min":0.34,"ref_max":5.6,"flag":"normal","proveedor":"Quest MX","estimulada":true,"panel":"PROMO TIROIDES Y QS3 PERFIL TIROIDEO I PERFIL - (Quimioluminiscencia)"},{"fecha":"2022-11-01","marcador":"TSH","valor":2.327,"unidad":"uUI/mL","ref_min":0.34,"ref_max":5.6,"flag":"normal","proveedor":"Quest MX","estimulada":true,"panel":"TIROIDEO I PERFIL"},{"fecha":"2026-03-05","marcador":"TSH","valor":27.1374,"unidad":"\u00b5UI/mL","ref_min":0.35,"ref_max":4.94,"flag":"H","proveedor":"Hospital \u00c1ngeles Lomas","estimulada":true,"panel":"PERFIL TIROIDEO II"},{"fecha":"2026-03-06","marcador":"TSH","valor":27.1374,"unidad":"\u00b5UI/mL","ref_min":0.35,"ref_max":4.94,"flag":"H","proveedor":"Hospital \u00c1ngeles Lomas","estimulada":true,"panel":"tiroideo"}],"Tiroglobulina":[{"fecha":"2019-03-22","marcador":"Tiroglobulina","valor":61.97,"unidad":"ng/mL","ref_min":3.5,"ref_max":56.0,"flag":"H","proveedor":"Quest MX","estimulada":false,"panel":"TIROGLOBULINA"},{"fecha":"2019-05-15","marcador":"Tiroglobulina","valor":13.01,"unidad":"ng/mL","ref_min":3.5,"ref_max":56.0,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"GLOBULINA"},{"fecha":"2019-06-02","marcador":"Tiroglobulina","valor":96.44,"unidad":"ng/mL","ref_min":3.5,"ref_max":56.0,"flag":"H","proveedor":"Quest MX","estimulada":false,"panel":"TIROGLOBULINA"},{"fecha":"2020-05-25","marcador":"Tiroglobulina","valor":5.7,"unidad":"ng/mL","ref_min":3.5,"ref_max":56.0,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"INMUNOQU\u00cdMICA"},{"fecha":"2020-06-15","marcador":"Tiroglobulina","valor":0.8,"unidad":"ng/mL","ref_min":3.5,"ref_max":56.0,"flag":"L","proveedor":"Quest MX","estimulada":false,"panel":"INMUNOQU\u00cdMICA"},{"fecha":"2021-06-07","marcador":"Tiroglobulina","valor":0.6,"unidad":"ng/mL","ref_min":3.5,"ref_max":56.0,"flag":"L","proveedor":"Quest MX","estimulada":false,"panel":"INMUNOQU\u00cdMICA"},{"fecha":"2021-12-22","marcador":"Tiroglobulina","valor":0.5,"unidad":"ng/mL","ref_min":3.5,"ref_max":56.0,"flag":"L","proveedor":"Quest MX","estimulada":false,"panel":"INMUNOQUIMICA"},{"fecha":"2022-03-09","marcador":"Tiroglobulina","valor":0.4,"unidad":"ng/mL","ref_min":2.8,"ref_max":40.9,"flag":"L","proveedor":"Quest USA","estimulada":false,"panel":"THYROGLOBULIN PANEL"},{"fecha":"2023-07-12","marcador":"Tiroglobulina","valor":0.9,"unidad":"ng/mL","ref_min":3.5,"ref_max":56.0,"flag":"L","proveedor":"Quest MX","estimulada":false,"panel":"INMUNOQU\u00cdMICA"},{"fecha":"2024-10-08","marcador":"Tiroglobulina","valor":1.2,"unidad":"ng/mL","ref_min":3.5,"ref_max":56.0,"flag":"L","proveedor":"Quest MX","estimulada":false,"panel":"INMUNOQUIMICA"},{"fecha":"2025-08-30","marcador":"Tiroglobulina","valor":1.1,"unidad":"ng/mL","ref_min":1.4,"ref_max":29.2,"flag":"L","proveedor":"Labcorp NY","estimulada":false,"panel":"tiroideo"},{"fecha":"2025-10-24","marcador":"Tiroglobulina","valor":1.1,"unidad":"ng/mL","ref_min":1.4,"ref_max":29.2,"flag":"L","proveedor":"Labcorp NY","estimulada":false,"panel":"Comprehensive Thyroglobulin"},{"fecha":"2026-03-05","marcador":"Tiroglobulina","valor":9.96,"unidad":"ng/mL","ref_min":3.5,"ref_max":77.0,"flag":"normal","proveedor":"Hospital \u00c1ngeles Lomas","estimulada":false,"panel":"tiroideo"},{"fecha":"2026-04-17","marcador":"Tiroglobulina","valor":3.97,"unidad":"ng/mL","ref_min":3.5,"ref_max":56.0,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"tiroideo"}],"Tiroglobulina_estimulada":[{"fecha":"2022-11-01","marcador":"Tiroglobulina","valor":5.2,"unidad":"ng/mL","ref_min":3.5,"ref_max":56.0,"flag":"normal","proveedor":"Quest MX","estimulada":true,"panel":"INMUNOQU\u00cdMICA"},{"fecha":"2026-03-06","marcador":"Tiroglobulina","valor":9.96,"unidad":"ng/mL","ref_min":3.5,"ref_max":77.0,"flag":"normal","proveedor":"Hospital \u00c1ngeles Lomas","estimulada":true,"panel":"tiroideo"}],"T3L":[{"fecha":"2019-03-18","marcador":"T3L","valor":2.13,"unidad":"pg/mL","ref_min":2.5,"ref_max":3.9,"flag":"L","proveedor":"Quest MX","estimulada":false,"panel":"TIROIDEO II, PERFIL"},{"fecha":"2019-06-02","marcador":"T3L","valor":3.4,"unidad":"pg/mL","ref_min":0.87,"ref_max":1.78,"flag":"H","proveedor":"Quest MX","estimulada":false,"panel":"PERFIL TIROIDEO"},{"fecha":"2021-06-07","marcador":"T3L","valor":3.92,"unidad":"pg/mL","ref_min":2.5,"ref_max":3.9,"flag":"H","proveedor":"Quest MX","estimulada":false,"panel":"PROMOCION TIROIDEO II + QS 3 ELEMENTOS - TIROIDEO PERFIL"},{"fecha":"2024-10-08","marcador":"T3L","valor":3.55,"unidad":"pg/mL","ref_min":2.5,"ref_max":3.9,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"PROMOCION TIROIDEO II + QS 3 ELEMENTOS - TIROIDEO PERFIL"},{"fecha":"2025-08-11","marcador":"T3L","valor":7.0,"unidad":"pg/mL","ref_min":2.0,"ref_max":4.4,"flag":"H","proveedor":"Labcorp NY","estimulada":false,"panel":"tiroideo"},{"fecha":"2025-10-24","marcador":"T3L","valor":8.5,"unidad":"pg/mL","ref_min":2.0,"ref_max":4.4,"flag":"H","proveedor":"Labcorp NY","estimulada":false,"panel":"tiroideo"},{"fecha":"2026-03-05","marcador":"T3L","valor":8.26,"unidad":"pg/mL","ref_min":1.58,"ref_max":3.91,"flag":"H","proveedor":"Hospital \u00c1ngeles Lomas","estimulada":false,"panel":"tiroideo"},{"fecha":"2026-03-06","marcador":"T3L","valor":8.26,"unidad":"pg/mL","ref_min":1.58,"ref_max":3.91,"flag":"H","proveedor":"Hospital \u00c1ngeles Lomas","estimulada":true,"panel":"tiroideo"},{"fecha":"2026-04-17","marcador":"T3L","valor":4.31,"unidad":"pg/mL","ref_min":2.5,"ref_max":3.9,"flag":"H","proveedor":"Quest MX","estimulada":false,"panel":"tiroideo"}],"T4L":[{"fecha":"2019-03-18","marcador":"T4L","valor":0.66,"unidad":"ng/dL","ref_min":0.63,"ref_max":1.34,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"TIROIDEO II, PERFIL"},{"fecha":"2019-04-12","marcador":"T4L","valor":0.92,"unidad":"ng/dL","ref_min":0.63,"ref_max":1.34,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"TIROIDEO"},{"fecha":"2019-05-15","marcador":"T4L","valor":1.03,"unidad":"ng/dL","ref_min":0.63,"ref_max":1.34,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"TIROIDEO"},{"fecha":"2019-06-02","marcador":"T4L","valor":0.76,"unidad":"ng/dL","ref_min":0.63,"ref_max":1.34,"flag":"H","proveedor":"Quest MX","estimulada":false,"panel":"TIROIDEO"},{"fecha":"2019-09-13","marcador":"T4L","valor":1.32,"unidad":"ng/dL","ref_min":0.63,"ref_max":1.34,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"TIROIDEO"},{"fecha":"2019-12-24","marcador":"T4L","valor":1.75,"unidad":"ng/dL","ref_min":0.61,"ref_max":1.34,"flag":"H","proveedor":"Quest MX","estimulada":false,"panel":"PROMO TIROIDES Y QS3 PERFIL TIROIDEO I PERFIL - (Quimioluminiscencia) [Dx/800-602841_FRO]"},{"fecha":"2020-04-17","marcador":"T4L","valor":1.21,"unidad":"ng/dL","ref_min":0.61,"ref_max":1.34,"flag":"normal","proveedor":"Quest MX","estimulada":true,"panel":"PROMO TIROIDES Y QS3 PERFIL TIROIDEO I PERFIL - (Quimioluminiscencia)"},{"fecha":"2020-05-25","marcador":"T4L","valor":1.01,"unidad":"ng/dL","ref_min":0.61,"ref_max":1.34,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"PROMO TIROIDES Y QS3 PERFIL - TIROIDEO I PERFIL (Quimioluminiscencia)"},{"fecha":"2020-06-15","marcador":"T4L","valor":1.2,"unidad":"ng/dL","ref_min":0.61,"ref_max":1.34,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"PROMO TIROIDES Y QS3 PERFIL TIROIDEO I PERFIL - (Quimioluminiscencia)"},{"fecha":"2021-06-07","marcador":"T4L","valor":1.23,"unidad":"ng/dL","ref_min":0.61,"ref_max":1.34,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"PROMOCION TIROIDEO II + QS 3 ELEMENTOS - TIROIDEO PERFIL"},{"fecha":"2021-12-22","marcador":"T4L","valor":1.1,"unidad":"ng/dL","ref_min":0.61,"ref_max":1.34,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"PROMO TIROIDES Y QS3 PERFIL - TIROIDEO I PERFIL"},{"fecha":"2022-03-09","marcador":"T4L","valor":2.7,"unidad":"ng/dL","ref_min":0.8,"ref_max":1.8,"flag":"H","proveedor":"Quest USA","estimulada":false,"panel":"TSH W/REFLEX TO FT4"},{"fecha":"2022-11-01","marcador":"T4L","valor":1.22,"unidad":"ng/dL","ref_min":0.61,"ref_max":1.34,"flag":"normal","proveedor":"Quest MX","estimulada":true,"panel":"TIROIDEO I PERFIL"},{"fecha":"2023-07-12","marcador":"T4L","valor":0.95,"unidad":"ng/dL","ref_min":0.61,"ref_max":1.34,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"TIROIDEO I PERFIL"},{"fecha":"2024-10-08","marcador":"T4L","valor":0.94,"unidad":"ng/dL","ref_min":0.61,"ref_max":1.34,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"PROMOCION TIROIDEO II + QS 3 ELEMENTOS - TIROIDEO PERFIL"},{"fecha":"2025-08-11","marcador":"T4L","valor":1.77,"unidad":"ng/dL","ref_min":0.82,"ref_max":1.77,"flag":"normal","proveedor":"Labcorp NY","estimulada":false,"panel":"tiroideo"},{"fecha":"2025-10-24","marcador":"T4L","valor":1.54,"unidad":"ng/dL","ref_min":0.82,"ref_max":1.77,"flag":"normal","proveedor":"Labcorp NY","estimulada":false,"panel":"tiroideo"},{"fecha":"2026-03-05","marcador":"T4L","valor":1.83,"unidad":"ng/dL","ref_min":0.7,"ref_max":1.48,"flag":"H","proveedor":"Hospital \u00c1ngeles Lomas","estimulada":false,"panel":"tiroideo"},{"fecha":"2026-03-06","marcador":"T4L","valor":1.83,"unidad":"ng/dL","ref_min":0.7,"ref_max":1.48,"flag":"H","proveedor":"Hospital \u00c1ngeles Lomas","estimulada":true,"panel":"tiroideo"},{"fecha":"2026-04-17","marcador":"T4L","valor":1.05,"unidad":"ng/dL","ref_min":0.61,"ref_max":1.34,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"tiroideo"}],"AntiTg":[{"fecha":"2019-03-18","marcador":"AntiTg","valor":3.1,"unidad":"UI/mL","ref_min":0.0,"ref_max":4.11,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"TIROIDEO II, PERFIL"},{"fecha":"2019-06-02","marcador":"AntiTg","valor":1.21,"unidad":"UI/mL","ref_min":0.0,"ref_max":4.11,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"TIROGLOBULINA ANTICUERPOS IgG"},{"fecha":"2021-06-07","marcador":"AntiTg","valor":3.0,"unidad":"IU/mL","ref_min":0.0,"ref_max":4.11,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"PROMOCION TIROIDEO II + QS 3 ELEMENTOS"},{"fecha":"2022-03-09","marcador":"AntiTg","valor":1.0,"unidad":"IU/mL","ref_min":null,"ref_max":1.0,"flag":"normal","proveedor":"Quest USA","estimulada":false,"panel":"THYROGLOBULIN PANEL"},{"fecha":"2022-11-01","marcador":"AntiTg","valor":0.79,"unidad":"IU/mL","ref_min":null,"ref_max":4.11,"flag":"normal","proveedor":"Quest MX","estimulada":true,"panel":"SEROLOG\u00cdA AUTOMATIZADA"},{"fecha":"2023-07-12","marcador":"AntiTg","valor":0.86,"unidad":"IU/mL","ref_min":null,"ref_max":4.11,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"SEROLOG\u00cdA AUTOMATIZADA"},{"fecha":"2024-10-08","marcador":"AntiTg","valor":0.78,"unidad":"IU/mL","ref_min":null,"ref_max":4.11,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"PROMOCION TIROIDEO II + QS 3 ELEMENTOS"},{"fecha":"2025-08-30","marcador":"AntiTg","valor":1.0,"unidad":"IU/mL","ref_min":null,"ref_max":1.0,"flag":"normal","proveedor":"Labcorp NY","estimulada":false,"panel":"tiroideo"},{"fecha":"2025-10-24","marcador":"AntiTg","valor":1.0,"unidad":"IU/mL","ref_min":0.0,"ref_max":0.9,"flag":"H","proveedor":"Labcorp NY","estimulada":false,"panel":"tiroideo"},{"fecha":"2026-03-05","marcador":"AntiTg","valor":1.1,"unidad":"UI/mL","ref_min":0.0,"ref_max":4.1,"flag":"normal","proveedor":"Hospital \u00c1ngeles Lomas","estimulada":false,"panel":"tiroideo"},{"fecha":"2026-03-06","marcador":"AntiTg","valor":1.1,"unidad":"UI/mL","ref_min":0.0,"ref_max":4.1,"flag":"normal","proveedor":"Hospital \u00c1ngeles Lomas","estimulada":true,"panel":"tiroideo"},{"fecha":"2026-04-17","marcador":"AntiTg","valor":1.02,"unidad":"IU/mL","ref_min":null,"ref_max":4.11,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"tiroideo"}],"AntiTPO":[{"fecha":"2019-03-18","marcador":"AntiTPO","valor":3.0,"unidad":"UI/mL","ref_min":0.0,"ref_max":5.61,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"TIROIDEO II, PERFIL"},{"fecha":"2019-06-02","marcador":"AntiTPO","valor":3.0,"unidad":"UI/mL","ref_min":null,"ref_max":5.61,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"ANTI-PEROXIDASA TIROIDEA"},{"fecha":"2021-06-07","marcador":"AntiTPO","valor":3.0,"unidad":"IU/mL","ref_min":0.0,"ref_max":5.61,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"PROMOCION TIROIDEO II + QS 3 ELEMENTOS"},{"fecha":"2022-11-01","marcador":"AntiTPO","valor":0.17,"unidad":"IU/mL","ref_min":null,"ref_max":5.61,"flag":"normal","proveedor":"Quest MX","estimulada":true,"panel":"SEROLOG\u00cdA AUTOMATIZADA"},{"fecha":"2023-07-12","marcador":"AntiTPO","valor":0.3,"unidad":"IU/mL","ref_min":null,"ref_max":5.61,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"SEROLOG\u00cdA AUTOMATIZADA"},{"fecha":"2024-10-08","marcador":"AntiTPO","valor":0.42,"unidad":"IU/mL","ref_min":null,"ref_max":5.61,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"PROMOCION TIROIDEO II + QS 3 ELEMENTOS"},{"fecha":"2025-10-24","marcador":"AntiTPO","valor":15.0,"unidad":"IU/mL","ref_min":0.0,"ref_max":34.0,"flag":"normal","proveedor":"Labcorp NY","estimulada":false,"panel":"tiroideo"},{"fecha":"2026-03-05","marcador":"AntiTPO","valor":0.6,"unidad":"UI/mL","ref_min":0.0,"ref_max":5.6,"flag":"normal","proveedor":"Hospital \u00c1ngeles Lomas","estimulada":false,"panel":"tiroideo"},{"fecha":"2026-03-06","marcador":"AntiTPO","valor":0.6,"unidad":"UI/mL","ref_min":0.0,"ref_max":5.6,"flag":"normal","proveedor":"Hospital \u00c1ngeles Lomas","estimulada":true,"panel":"tiroideo"},{"fecha":"2026-04-17","marcador":"AntiTPO","valor":0.0,"unidad":"IU/mL","ref_min":null,"ref_max":5.61,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"tiroideo"}]},"metabolico":{"Glucosa":[{"fecha":"2018-12-23","marcador":"Glucosa","valor":98.0,"unidad":"mg/dL","ref_min":60.0,"ref_max":100.0,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"BIOQUIMICO DE 12"},{"fecha":"2019-03-18","marcador":"Glucosa","valor":98.0,"unidad":"mg/dL","ref_min":60.0,"ref_max":100.0,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"QUIMICA DE 3"},{"fecha":"2019-04-12","marcador":"Glucosa","valor":88.0,"unidad":"mg/dL","ref_min":60.0,"ref_max":100.0,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"QUIMICA DE 3"},{"fecha":"2019-06-02","marcador":"Glucosa","valor":97.0,"unidad":"mg/dL","ref_min":60.0,"ref_max":100.0,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"QUIMICA DE 3"},{"fecha":"2019-09-13","marcador":"Glucosa","valor":88.0,"unidad":"mg/dL","ref_min":60.0,"ref_max":100.0,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"QUIMICA DE 3"},{"fecha":"2019-12-24","marcador":"Glucosa","valor":93.0,"unidad":"mg/dL","ref_min":60.0,"ref_max":100.0,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"PROMO TIROIDES Y QS3 PERFIL QUIMICA 3 ELEMENTOS - (Fotometr\u00eda automatizada)"},{"fecha":"2020-04-17","marcador":"Glucosa","valor":83.0,"unidad":"mg/dL","ref_min":60.0,"ref_max":100.0,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"PROMO TIROIDES Y QS3 PERFIL - QUIMICA 3 ELEMENTOS - (Fotometr\u00eda automatizada)"},{"fecha":"2020-05-25","marcador":"Glucosa","valor":91.0,"unidad":"mg/dL","ref_min":60.0,"ref_max":100.0,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"PROMO TIROIDES Y QS3 PERFIL QUIMICA 3 ELEMENTOS"},{"fecha":"2021-06-07","marcador":"Glucosa","valor":89.0,"unidad":"mg/dL","ref_min":60.0,"ref_max":100.0,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"QUIMICA 3 ELEMENTOS"},{"fecha":"2021-12-22","marcador":"Glucosa","valor":94.0,"unidad":"mg/dL","ref_min":60.0,"ref_max":100.0,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"QUIMICA 3 ELEMENTOS"},{"fecha":"2023-07-12","marcador":"Glucosa","valor":83.0,"unidad":"mg/dL","ref_min":60.0,"ref_max":100.0,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"QUIMICA 27 ELEMENTOS"},{"fecha":"2024-10-08","marcador":"Glucosa","valor":90.0,"unidad":"mg/dL","ref_min":60.0,"ref_max":100.0,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"QUIMICA 30 ELEMENTOS"},{"fecha":"2025-08-11","marcador":"Glucosa","valor":102.0,"unidad":"mg/dL","ref_min":70.0,"ref_max":99.0,"flag":"H","proveedor":"Labcorp NY","estimulada":false,"panel":"glucemico"},{"fecha":"2025-10-24","marcador":"Glucosa","valor":98.0,"unidad":"mg/dL","ref_min":70.0,"ref_max":99.0,"flag":"normal","proveedor":"Labcorp NY","estimulada":false,"panel":"glucemico"},{"fecha":"2026-03-05","marcador":"Glucosa","valor":100.1,"unidad":"mg/dL","ref_min":74.0,"ref_max":100.0,"flag":"H","proveedor":"Hospital \u00c1ngeles Lomas","estimulada":false,"panel":"glucemico"},{"fecha":"2026-04-17","marcador":"Glucosa","valor":89.0,"unidad":"mg/dL","ref_min":60.0,"ref_max":100.0,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"glucemico"}],"HbA1c":[{"fecha":"2026-04-17","marcador":"HbA1c","valor":5.3,"unidad":"%","ref_min":null,"ref_max":5.7,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"glucemico"}],"Insulina":[{"fecha":"2026-04-17","marcador":"Insulina","valor":6.91,"unidad":"uUI/mL","ref_min":1.9,"ref_max":23.0,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"glucemico"}],"HOMA-IR":[{"fecha":"2026-04-17","marcador":"HOMA-IR","valor":1.51,"unidad":"mUI/mL","ref_min":null,"ref_max":1.96,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"glucemico"}]},"lipidico":{"Colesterol Total":[{"fecha":"2018-12-23","marcador":"Colesterol Total","valor":183.0,"unidad":"mg/dl","ref_min":null,"ref_max":200.0,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"BIOQUIMICO DE 12"},{"fecha":"2019-03-18","marcador":"Colesterol Total","valor":232.0,"unidad":"mg/dl","ref_min":null,"ref_max":200.0,"flag":"H","proveedor":"Quest MX","estimulada":false,"panel":"QUIMICA DE 3"},{"fecha":"2019-04-12","marcador":"Colesterol Total","valor":220.0,"unidad":"mg/dl","ref_min":null,"ref_max":200.0,"flag":"H","proveedor":"Quest MX","estimulada":false,"panel":"QUIMICA DE 3"},{"fecha":"2019-05-15","marcador":"Colesterol Total","valor":222.0,"unidad":"mg/dl","ref_min":null,"ref_max":200.0,"flag":"H","proveedor":"Quest MX","estimulada":false,"panel":"BIOQUIMICO DE 12"},{"fecha":"2019-06-02","marcador":"Colesterol Total","valor":239.0,"unidad":"mg/dl","ref_min":null,"ref_max":200.0,"flag":"H","proveedor":"Quest MX","estimulada":false,"panel":"QUIMICA DE 3"},{"fecha":"2019-09-13","marcador":"Colesterol Total","valor":203.0,"unidad":"mg/dl","ref_min":null,"ref_max":200.0,"flag":"H","proveedor":"Quest MX","estimulada":false,"panel":"QUIMICA DE 3"},{"fecha":"2019-12-24","marcador":"Colesterol Total","valor":169.0,"unidad":"mg/dL","ref_min":null,"ref_max":200.0,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"PROMO TIROIDES Y QS3 PERFIL QUIMICA 3 ELEMENTOS - (Fotometr\u00eda automatizada)"},{"fecha":"2020-04-17","marcador":"Colesterol Total","valor":215.0,"unidad":"mg/dL","ref_min":null,"ref_max":200.0,"flag":"H","proveedor":"Quest MX","estimulada":false,"panel":"PROMO TIROIDES Y QS3 PERFIL - QUIMICA 3 ELEMENTOS - (Fotometr\u00eda automatizada)"},{"fecha":"2020-05-25","marcador":"Colesterol Total","valor":179.0,"unidad":"mg/dL","ref_min":null,"ref_max":200.0,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"PROMO TIROIDES Y QS3 PERFIL QUIMICA 3 ELEMENTOS"},{"fecha":"2021-06-07","marcador":"Colesterol Total","valor":185.0,"unidad":"mg/dL","ref_min":null,"ref_max":200.0,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"QUIMICA 3 ELEMENTOS"},{"fecha":"2021-12-22","marcador":"Colesterol Total","valor":185.0,"unidad":"mg/dL","ref_min":null,"ref_max":200.0,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"QUIMICA 3 ELEMENTOS"},{"fecha":"2023-07-12","marcador":"Colesterol Total","valor":124.0,"unidad":"mg/dL","ref_min":null,"ref_max":200.0,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"QUIMICA 27 ELEMENTOS"},{"fecha":"2024-10-08","marcador":"Colesterol Total","valor":221.0,"unidad":"mg/dL","ref_min":null,"ref_max":199.0,"flag":"H","proveedor":"Quest MX","estimulada":false,"panel":"QUIMICA 30 ELEMENTOS"},{"fecha":"2025-08-11","marcador":"Colesterol Total","valor":227.0,"unidad":"mg/dL","ref_min":100.0,"ref_max":199.0,"flag":"H","proveedor":"Labcorp NY","estimulada":false,"panel":"lipidico"},{"fecha":"2026-03-05","marcador":"Colesterol Total","valor":255.6,"unidad":"mg/dL","ref_min":null,"ref_max":200.0,"flag":"H","proveedor":"Hospital \u00c1ngeles Lomas","estimulada":false,"panel":"lipidico"},{"fecha":"2026-04-17","marcador":"Colesterol Total","valor":222.0,"unidad":"mg/dL","ref_min":null,"ref_max":199.0,"flag":"H","proveedor":"Quest MX","estimulada":false,"panel":"lipidico"}],"LDL":[{"fecha":"2019-06-02","marcador":"LDL","valor":150.09,"unidad":"mg/dL","ref_min":null,"ref_max":130.0,"flag":"H","proveedor":"Quest MX","estimulada":false,"panel":"BIOQUIMICO DE 30"},{"fecha":"2021-06-07","marcador":"LDL","valor":116.47,"unidad":"mg/dL","ref_min":0.0,"ref_max":130.0,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"L\u00edpidos"},{"fecha":"2023-07-12","marcador":"LDL","valor":71.37,"unidad":"mg/dL","ref_min":0.0,"ref_max":130.0,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"QUIMICA 27 ELEMENTOS"},{"fecha":"2024-10-08","marcador":"LDL","valor":151.26,"unidad":"mg/dL","ref_min":0.0,"ref_max":130.0,"flag":"H","proveedor":"Quest MX","estimulada":false,"panel":"QUIMICA 30 ELEMENTOS"},{"fecha":"2025-08-11","marcador":"LDL","valor":155.0,"unidad":"mg/dL","ref_min":0.0,"ref_max":99.0,"flag":"H","proveedor":"Labcorp NY","estimulada":false,"panel":"Lipid Panel"},{"fecha":"2026-03-05","marcador":"LDL","valor":218.5,"unidad":"mg/dL","ref_min":null,"ref_max":100.0,"flag":"H","proveedor":"Hospital \u00c1ngeles Lomas","estimulada":true,"panel":"QUIMICA SANGUINEA (50 ELEMENTOS)"},{"fecha":"2026-04-17","marcador":"LDL","valor":151.54,"unidad":"mg/dL","ref_min":0.0,"ref_max":130.0,"flag":"H","proveedor":"Quest MX","estimulada":false,"panel":"Qu\u00edmica Sangu\u00ednea"}],"HDL":[{"fecha":"2019-06-02","marcador":"HDL","valor":46.0,"unidad":"mg/dL","ref_min":40.0,"ref_max":null,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"BIOQUIMICO DE 30"},{"fecha":"2021-06-07","marcador":"HDL","valor":44.0,"unidad":"mg/dL","ref_min":null,"ref_max":null,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"L\u00edpidos"},{"fecha":"2023-07-12","marcador":"HDL","valor":28.3,"unidad":"mg/dL","ref_min":null,"ref_max":null,"flag":"L","proveedor":"Quest MX","estimulada":false,"panel":"QUIMICA 27 ELEMENTOS"},{"fecha":"2024-10-08","marcador":"HDL","valor":54.5,"unidad":"mg/dL","ref_min":60.0,"ref_max":null,"flag":"L","proveedor":"Quest MX","estimulada":false,"panel":"QUIMICA 30 ELEMENTOS"},{"fecha":"2025-08-11","marcador":"HDL","valor":43.0,"unidad":"mg/dL","ref_min":39.0,"ref_max":null,"flag":"normal","proveedor":"Labcorp NY","estimulada":false,"panel":"Lipid Panel"},{"fecha":"2026-03-05","marcador":"HDL","valor":35.7,"unidad":"mg/dL","ref_min":40.0,"ref_max":null,"flag":"L","proveedor":"Hospital \u00c1ngeles Lomas","estimulada":true,"panel":"QUIMICA SANGUINEA (50 ELEMENTOS)"},{"fecha":"2026-04-17","marcador":"HDL","valor":40.8,"unidad":"mg/dL","ref_min":null,"ref_max":null,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"Qu\u00edmica Sangu\u00ednea"}],"Trigliceridos":[{"fecha":"2018-12-23","marcador":"Trigliceridos","valor":167.0,"unidad":"mg/dL","ref_min":null,"ref_max":150.0,"flag":"H","proveedor":"Quest MX","estimulada":false,"panel":"BIOQUIMICO DE 12"},{"fecha":"2019-03-18","marcador":"Trigliceridos","valor":134.0,"unidad":"mg/dL","ref_min":null,"ref_max":150.0,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"QUIMICA DE 3"},{"fecha":"2019-04-12","marcador":"Trigliceridos","valor":136.0,"unidad":"mg/dL","ref_min":null,"ref_max":150.0,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"QUIMICA DE 3"},{"fecha":"2019-05-15","marcador":"Trigliceridos","valor":149.0,"unidad":"mg/dL","ref_min":null,"ref_max":150.0,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"BIOQUIMICO DE 12"},{"fecha":"2019-06-02","marcador":"Trigliceridos","valor":186.0,"unidad":"mg/dL","ref_min":null,"ref_max":150.0,"flag":"H","proveedor":"Quest MX","estimulada":false,"panel":"QUIMICA DE 3"},{"fecha":"2019-09-13","marcador":"Trigliceridos","valor":95.0,"unidad":"mg/dL","ref_min":null,"ref_max":150.0,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"QUIMICA DE 3"},{"fecha":"2019-12-24","marcador":"Trigliceridos","valor":108.0,"unidad":"mg/dL","ref_min":null,"ref_max":150.0,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"PROMO TIROIDES Y QS3 PERFIL QUIMICA 3 ELEMENTOS - (Fotometr\u00eda automatizada)"},{"fecha":"2020-04-17","marcador":"Trigliceridos","valor":160.0,"unidad":"mg/dL","ref_min":null,"ref_max":150.0,"flag":"H","proveedor":"Quest MX","estimulada":false,"panel":"PROMO TIROIDES Y QS3 PERFIL - QUIMICA 3 ELEMENTOS - (Fotometr\u00eda automatizada)"},{"fecha":"2020-05-25","marcador":"Trigliceridos","valor":110.0,"unidad":"mg/dL","ref_min":null,"ref_max":150.0,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"PROMO TIROIDES Y QS3 PERFIL QUIMICA 3 ELEMENTOS"},{"fecha":"2021-06-07","marcador":"Trigliceridos","valor":130.0,"unidad":"mg/dL","ref_min":null,"ref_max":150.0,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"QUIMICA 3 ELEMENTOS"},{"fecha":"2021-12-22","marcador":"Trigliceridos","valor":154.0,"unidad":"mg/dL","ref_min":null,"ref_max":150.0,"flag":"H","proveedor":"Quest MX","estimulada":false,"panel":"QUIMICA 3 ELEMENTOS"},{"fecha":"2023-07-12","marcador":"Trigliceridos","valor":163.0,"unidad":"mg/dL","ref_min":null,"ref_max":150.0,"flag":"H","proveedor":"Quest MX","estimulada":false,"panel":"QUIMICA 27 ELEMENTOS"},{"fecha":"2024-10-08","marcador":"Trigliceridos","valor":61.0,"unidad":"mg/dL","ref_min":0.0,"ref_max":149.0,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"QUIMICA 30 ELEMENTOS"},{"fecha":"2025-08-11","marcador":"Trigliceridos","valor":160.0,"unidad":"mg/dL","ref_min":0.0,"ref_max":149.0,"flag":"H","proveedor":"Labcorp NY","estimulada":false,"panel":"lipidico"},{"fecha":"2026-03-05","marcador":"Trigliceridos","valor":107.2,"unidad":"mg/dL","ref_min":null,"ref_max":150.0,"flag":"normal","proveedor":"Hospital \u00c1ngeles Lomas","estimulada":false,"panel":"lipidico"},{"fecha":"2026-04-17","marcador":"Trigliceridos","valor":159.0,"unidad":"mg/dL","ref_min":null,"ref_max":149.0,"flag":"H","proveedor":"Quest MX","estimulada":false,"panel":"lipidico"}]},"inmune":{"PCR":[{"fecha":"2026-03-05","marcador":"PCR","valor":0.22,"unidad":"mg/dL","ref_min":0.0,"ref_max":0.5,"flag":"normal","proveedor":"Hospital \u00c1ngeles Lomas","estimulada":false,"panel":"otro"},{"fecha":"2026-04-17","marcador":"PCR","valor":2.23,"unidad":"mg/L","ref_min":null,"ref_max":5.0,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"otro"}],"IgA":[{"fecha":"2026-04-17","marcador":"IgA","valor":110.2,"unidad":"mg/dL","ref_min":66.0,"ref_max":403.0,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"otro"}],"IgG":[{"fecha":"2026-04-17","marcador":"IgG","valor":905.8,"unidad":"mg/dL","ref_min":700.0,"ref_max":1600.0,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"otro"}],"IgM":[{"fecha":"2026-04-17","marcador":"IgM","valor":101.9,"unidad":"mg/dL","ref_min":40.0,"ref_max":230.0,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"otro"}],"IgE":[{"fecha":"2026-04-17","marcador":"IgE","valor":28.4,"unidad":"IU/mL","ref_min":0.0,"ref_max":160.0,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"otro"}],"VitaminaD":[{"fecha":"2025-08-11","marcador":"VitaminaD","valor":24.2,"unidad":"ng/mL","ref_min":30.0,"ref_max":100.0,"flag":"L","proveedor":"Labcorp NY","estimulada":false,"panel":"vitaminas"},{"fecha":"2026-04-17","marcador":"VitaminaD","valor":23.0,"unidad":"ng/mL","ref_min":30.0,"ref_max":100.0,"flag":"L","proveedor":"Quest MX","estimulada":false,"panel":"vitaminas"}],"Folatos":[{"fecha":"2026-04-17","marcador":"Folatos","valor":23.0,"unidad":"ng/mL","ref_min":3.0,"ref_max":null,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"vitaminas"}]},"hemograma":{"Hemoglobina":[{"fecha":"2018-12-23","marcador":"Hemoglobina","valor":16.3,"unidad":"g/dL","ref_min":14.2,"ref_max":17.8,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"BIOMETRIA HEMATICA"},{"fecha":"2021-06-07","marcador":"Hemoglobina","valor":16.1,"unidad":"g/dL","ref_min":14.2,"ref_max":17.8,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"F\u00d3RMULA ROJA"},{"fecha":"2023-07-12","marcador":"Hemoglobina","valor":16.7,"unidad":"g/dL","ref_min":14.2,"ref_max":17.8,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"F\u00d3RMULA ROJA"},{"fecha":"2024-10-08","marcador":"Hemoglobina","valor":16.1,"unidad":"g/dL","ref_min":14.2,"ref_max":17.8,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"F\u00d3RMULA ROJA"},{"fecha":"2025-08-11","marcador":"Hemoglobina","valor":15.8,"unidad":"g/dL","ref_min":13.0,"ref_max":17.7,"flag":"normal","proveedor":"Labcorp NY","estimulada":false,"panel":"hemograma"},{"fecha":"2025-10-24","marcador":"Hemoglobina","valor":16.2,"unidad":"g/dL","ref_min":13.0,"ref_max":17.7,"flag":"normal","proveedor":"Labcorp NY","estimulada":false,"panel":"hemograma"},{"fecha":"2026-03-05","marcador":"Hemoglobina","valor":17.1,"unidad":"g/dL","ref_min":14.0,"ref_max":18.0,"flag":"normal","proveedor":"Hospital \u00c1ngeles Lomas","estimulada":false,"panel":"hemograma"},{"fecha":"2026-03-06","marcador":"Hemoglobina","valor":17.1,"unidad":"g/dL","ref_min":14.0,"ref_max":18.0,"flag":"normal","proveedor":"Hospital \u00c1ngeles Lomas","estimulada":true,"panel":"hemograma"},{"fecha":"2026-04-17","marcador":"Hemoglobina","valor":16.9,"unidad":"g/dL","ref_min":14.2,"ref_max":17.8,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"hemograma"}],"Leucocitos":[{"fecha":"2018-12-23","marcador":"Leucocitos","valor":6.6,"unidad":"10^3/uL","ref_min":4.0,"ref_max":10.0,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"FORMULA BLANCA"},{"fecha":"2021-06-07","marcador":"Leucocitos","valor":6.3,"unidad":"10^3/uL","ref_min":4.0,"ref_max":10.0,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"F\u00d3RMULA BLANCA"},{"fecha":"2023-07-12","marcador":"Leucocitos","valor":8.2,"unidad":"10^3/uL","ref_min":4.0,"ref_max":10.0,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"F\u00d3RMULA BLANCA"},{"fecha":"2024-10-08","marcador":"Leucocitos","valor":6.0,"unidad":"10^3/uL","ref_min":4.0,"ref_max":10.0,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"F\u00d3RMULA BLANCA"},{"fecha":"2025-08-11","marcador":"Leucocitos","valor":5.7,"unidad":"x10E3/uL","ref_min":3.4,"ref_max":10.8,"flag":"normal","proveedor":"Labcorp NY","estimulada":false,"panel":"hemograma"},{"fecha":"2025-10-24","marcador":"Leucocitos","valor":5.1,"unidad":"x10E3/uL","ref_min":3.4,"ref_max":10.8,"flag":"normal","proveedor":"Labcorp NY","estimulada":false,"panel":"hemograma"},{"fecha":"2026-03-05","marcador":"Leucocitos","valor":5.2,"unidad":"10^3/\u00b5L","ref_min":3.8,"ref_max":11.2,"flag":"normal","proveedor":"Hospital \u00c1ngeles Lomas","estimulada":false,"panel":"hemograma"},{"fecha":"2026-03-06","marcador":"Leucocitos","valor":5.2,"unidad":"10^3/\u00b5L","ref_min":3.8,"ref_max":11.2,"flag":"normal","proveedor":"Hospital \u00c1ngeles Lomas","estimulada":true,"panel":"hemograma"},{"fecha":"2026-04-17","marcador":"Leucocitos","valor":4.9,"unidad":"10^3/uL","ref_min":4.0,"ref_max":10.0,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"hemograma"}],"Plaquetas":[{"fecha":"2018-12-23","marcador":"Plaquetas","valor":288.0,"unidad":"10^3/uL","ref_min":140.0,"ref_max":400.0,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"BIOMETRIA HEMATICA"},{"fecha":"2019-05-15","marcador":"Plaquetas","valor":231.0,"unidad":"10^3/uL","ref_min":140.0,"ref_max":400.0,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"BIOMETRIA HEMATICA"},{"fecha":"2019-06-02","marcador":"Plaquetas","valor":240.0,"unidad":"10^3/uL","ref_min":140.0,"ref_max":400.0,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"BIOMETRIA HEMATICA"},{"fecha":"2021-06-07","marcador":"Plaquetas","valor":236.0,"unidad":"10^3/uL","ref_min":140.0,"ref_max":400.0,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"F\u00d3RMULA TROMBOC\u00cdTICA"},{"fecha":"2023-07-12","marcador":"Plaquetas","valor":322.0,"unidad":"10^3/uL","ref_min":140.0,"ref_max":400.0,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"F\u00d3RMULA TROMBOC\u00cdTICA"},{"fecha":"2024-10-08","marcador":"Plaquetas","valor":267.0,"unidad":"10^3/uL","ref_min":140.0,"ref_max":400.0,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"F\u00d3RMULA TROMBOC\u00cdTICA"},{"fecha":"2025-08-11","marcador":"Plaquetas","valor":207.0,"unidad":"x10E3/uL","ref_min":150.0,"ref_max":450.0,"flag":"normal","proveedor":"Labcorp NY","estimulada":false,"panel":"hemograma"},{"fecha":"2025-10-24","marcador":"Plaquetas","valor":240.0,"unidad":"x10E3/uL","ref_min":150.0,"ref_max":450.0,"flag":"normal","proveedor":"Labcorp NY","estimulada":false,"panel":"hemograma"},{"fecha":"2026-03-05","marcador":"Plaquetas","valor":270.0,"unidad":"10^3/\u00b5L","ref_min":130.0,"ref_max":450.0,"flag":"normal","proveedor":"Hospital \u00c1ngeles Lomas","estimulada":false,"panel":"hemograma"},{"fecha":"2026-03-06","marcador":"Plaquetas","valor":270.0,"unidad":"10^3/\u00b5L","ref_min":130.0,"ref_max":450.0,"flag":"normal","proveedor":"Hospital \u00c1ngeles Lomas","estimulada":true,"panel":"hemograma"},{"fecha":"2026-04-17","marcador":"Plaquetas","valor":270.0,"unidad":"10^3/uL","ref_min":140.0,"ref_max":400.0,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"hemograma"}],"Neutrofilos %":[{"fecha":"2018-12-23","marcador":"Neutrofilos %","valor":56.7,"unidad":"%","ref_min":50.0,"ref_max":70.0,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"FORMULA BLANCA"},{"fecha":"2019-05-15","marcador":"Neutrofilos %","valor":66.3,"unidad":"%","ref_min":50.0,"ref_max":70.0,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"FORMULA BLANCA"},{"fecha":"2019-06-02","marcador":"Neutrofilos %","valor":62.5,"unidad":"%","ref_min":50.0,"ref_max":70.0,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"FORMULA BLANCA"},{"fecha":"2021-06-07","marcador":"Neutrofilos %","valor":70.8,"unidad":"%","ref_min":50.0,"ref_max":70.0,"flag":"H","proveedor":"Quest MX","estimulada":false,"panel":"F\u00d3RMULA BLANCA"},{"fecha":"2023-07-12","marcador":"Neutrofilos %","valor":70.9,"unidad":"%","ref_min":50.0,"ref_max":70.0,"flag":"H","proveedor":"Quest MX","estimulada":false,"panel":"F\u00d3RMULA BLANCA"},{"fecha":"2024-10-08","marcador":"Neutrofilos %","valor":61.3,"unidad":"%","ref_min":50.0,"ref_max":70.0,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"F\u00d3RMULA BLANCA"},{"fecha":"2026-03-05","marcador":"Neutrofilos %","valor":53.0,"unidad":"%","ref_min":40.0,"ref_max":70.0,"flag":"normal","proveedor":"Hospital \u00c1ngeles Lomas","estimulada":false,"panel":"hemograma"},{"fecha":"2026-04-17","marcador":"Neutrofilos %","valor":52.4,"unidad":"%","ref_min":50.0,"ref_max":70.0,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"hemograma"}],"Linfocitos %":[{"fecha":"2018-12-23","marcador":"Linfocitos %","valor":31.7,"unidad":"%","ref_min":20.0,"ref_max":40.0,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"FORMULA BLANCA"},{"fecha":"2019-05-15","marcador":"Linfocitos %","valor":26.2,"unidad":"%","ref_min":20.0,"ref_max":40.0,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"FORMULA BLANCA"},{"fecha":"2019-06-02","marcador":"Linfocitos %","valor":28.8,"unidad":"%","ref_min":20.0,"ref_max":40.0,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"FORMULA BLANCA"},{"fecha":"2021-06-07","marcador":"Linfocitos %","valor":17.3,"unidad":"%","ref_min":20.0,"ref_max":40.0,"flag":"L","proveedor":"Quest MX","estimulada":false,"panel":"F\u00d3RMULA BLANCA"},{"fecha":"2023-07-12","marcador":"Linfocitos %","valor":20.3,"unidad":"%","ref_min":20.0,"ref_max":40.0,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"F\u00d3RMULA BLANCA"},{"fecha":"2024-10-08","marcador":"Linfocitos %","valor":30.6,"unidad":"%","ref_min":20.0,"ref_max":40.0,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"F\u00d3RMULA BLANCA"},{"fecha":"2026-03-05","marcador":"Linfocitos %","valor":37.0,"unidad":"%","ref_min":20.0,"ref_max":40.0,"flag":"normal","proveedor":"Hospital \u00c1ngeles Lomas","estimulada":false,"panel":"hemograma"},{"fecha":"2026-04-17","marcador":"Linfocitos %","valor":38.7,"unidad":"%","ref_min":20.0,"ref_max":40.0,"flag":"normal","proveedor":"Quest MX","estimulada":false,"panel":"hemograma"}]}}</script>
+<script>
+(function(){
+const DATA = JSON.parse(document.getElementById('lab-data').textContent);
+const C = {
+  navy:'#1f3a5f', sage:'#5a8a6b', terracotta:'#b85c38',
+  terracottaSoft:'#d28a6c', gold:'#c89f3c', plum:'#6e3a5c',
+  muted:'#6b6256', ink:'#1c1d24', line:'rgba(28,29,36,0.10)',
+};
+
+Chart.defaults.font.family="'Plus Jakarta Sans',sans-serif";
+Chart.defaults.font.size=11;
+Chart.defaults.color=C.muted;
+Chart.defaults.borderColor=C.line;
+Chart.defaults.scale.grid.color='rgba(28,29,36,0.05)';
+Chart.defaults.scale.border={display:false};
+
+const charts={};
+
+function fmt(v,d=1){
+  if(v==null||isNaN(v)) return '—';
+  return Number(v).toLocaleString('es-MX',{minimumFractionDigits:d,maximumFractionDigits:d});
+}
+function fmtDate(s){
+  const dt=new Date(s+'T00:00:00Z');
+  return dt.toLocaleDateString('es-MX',{day:'numeric',month:'short',year:'numeric',timeZone:'UTC'}).replace('.','');
+}
+function fmtShort(s){
+  const dt=new Date(s+'T00:00:00Z');
+  return dt.toLocaleDateString('es-MX',{month:'short',year:'2-digit',timeZone:'UTC'}).replace('.','');
+}
+
+const tooltipBase={
+  backgroundColor:'#1c1d24', titleColor:'#fbf6ec', bodyColor:'#fbf6ec',
+  borderColor:'transparent', padding:10, displayColors:false,
+  titleFont:{family:"'JetBrains Mono',monospace",size:10},
+  bodyFont:{family:"'Plus Jakarta Sans',sans-serif",size:12},
+  callbacks:{
+    title:(items)=>items[0]?fmtDate(items[0].label):'',
+    label:(ctx)=>ctx.dataset.label+': '+fmt(ctx.parsed.y,ctx.dataset.dp??2),
+  }
+};
+
+function scaleX(){
+  return {type:'category',ticks:{autoSkip:true,maxTicksLimit:10,font:{size:10,family:"'JetBrains Mono',monospace"},callback:function(v){return fmtShort(this.getLabelForValue(v));}},grid:{display:false}};
+}
+function scaleY(opts={}){
+  return {ticks:{font:{size:10,family:"'JetBrains Mono',monospace"},padding:6,...(opts.ticks||{})},grid:{color:'rgba(28,29,36,0.05)'},...opts};
+}
+
+function makeChart(id,type,labels,datasets,opts={}){
+  const ctx=document.getElementById(id);
+  if(!ctx) return;
+  if(charts[id]) charts[id].destroy();
+  charts[id]=new Chart(ctx,{
+    type,
+    data:{labels,datasets},
+    options:{
+      responsive:true,maintainAspectRatio:false,animation:{duration:300},
+      interaction:{mode:'index',intersect:false},
+      plugins:{legend:{display:opts.legend??false},tooltip:tooltipBase,...(opts.plugins||{})},
+      scales:{x:scaleX(),y:scaleY(opts.yOpts||{}),...(opts.scales||{})},
+      ...(opts.extra||{})
+    }
+  });
+}
+
+// ─── Reference line plugin ─────────────────────────────────────────────────
+function refLinePlugin(min,max,color='rgba(184,92,56,0.20)'){
+  return {
+    id:'refZone',
+    beforeDatasetsDraw(chart){
+      const {ctx,chartArea,scales}=chart;
+      if(!chartArea) return;
+      const y=scales.y;
+      ctx.save();
+      ctx.fillStyle=color;
+      const yTop=max!=null?Math.max(y.getPixelForValue(max),chartArea.top):chartArea.top;
+      const yBot=min!=null?Math.min(y.getPixelForValue(min),chartArea.bottom):chartArea.bottom;
+      ctx.fillRect(chartArea.left,yTop,chartArea.right-chartArea.left,yBot-yTop);
+      ctx.restore();
+    }
+  };
+}
+
+// ─── Scatter+line hybrid for time series with flags ─────────────────────────
+function seriesChart(id,pts,color,label,refMin,refMax,opts={}){
+  if(!pts||!pts.length) return;
+  const labels=pts.map(p=>p.fecha);
+  const values=pts.map(p=>p.valor);
+  const pointColors=pts.map(p=>{
+    if(p.flag==='H') return C.terracotta;
+    if(p.flag==='L') return C.navy;
+    return color;
+  });
+  const pointR=pts.map(p=>(p.flag==='H'||p.flag==='L')?5:4);
+
+  const datasets=[{
+    label,data:values,
+    borderColor:color,borderWidth:1.8,
+    backgroundColor:pointColors,
+    pointBackgroundColor:pointColors,
+    pointBorderColor:pointColors,
+    pointRadius:pointR,pointHoverRadius:6,
+    tension:0.2,dp:opts.dp??2,
+    ...(opts.openCircle?{pointStyle:'circle',pointBorderWidth:1.5,pointBackgroundColor:'transparent'}:{})
+  }];
+
+  if(opts.extraDatasets) datasets.push(...opts.extraDatasets);
+
+  const yVals=[...values,...(opts.extraVals||[])].filter(v=>v!=null);
+  const yMin=opts.yMin??null;
+  const yMax=opts.yMax??null;
+
+  makeChart(id,'line',labels,datasets,{
+    yOpts:{
+      ...(yMin!=null?{min:yMin}:{}),
+      ...(yMax!=null?{max:yMax}:{}),
+      ticks:{callback:v=>fmt(v,opts.dp??2)},
+    },
+    plugins:refMin||refMax?{refZone:refLinePlugin(refMin,refMax,'rgba(90,138,107,0.10)')}:{},
+    ...(opts.extra||{})
+  });
+  if(refMin||refMax) Chart.register(refLinePlugin(refMin,refMax));
+}
+
+// ─── KPI strip ─────────────────────────────────────────────────────────────
+function buildKPIs(){
+  const markers=[
+    {key:'TSH',   src:DATA.tiroideo.TSH,   label:'TSH',        unit:'µUI/mL'},
+    {key:'TG',    src:DATA.tiroideo.Tiroglobulina, label:'Tiroglobulina', unit:'ng/mL'},
+    {key:'T3L',   src:DATA.tiroideo.T3L,   label:'T3 Libre',   unit:'pg/mL'},
+    {key:'VitD',  src:DATA.inmune.VitaminaD, label:'Vitamina D', unit:'ng/mL'},
+    {key:'LDL',   src:DATA.lipidico.LDL,   label:'LDL',        unit:'mg/dL'},
+  ];
+  const html=markers.map(m=>{
+    const pts=m.src||[];
+    if(!pts.length) return `<div class="kpi"><div class="kpi-label">${m.label}</div><div class="kpi-value">—</div></div>`;
+    const l=pts[pts.length-1];
+    const flagCls=l.flag==='H'?'H':l.flag==='L'?'L':'normal';
+    const flagTxt=l.flag==='H'?'Alto':l.flag==='L'?'Bajo':'Normal';
+    return `<div class="kpi">
+      <div class="kpi-label">${m.label}</div>
+      <div class="kpi-value">${fmt(l.valor,l.valor<10?2:1)}<span class="kpi-unit">${m.unit}</span></div>
+      <span class="kpi-flag ${flagCls}">${flagTxt}</span>
+      <div class="kpi-date">${fmtDate(l.fecha)}</div>
+    </div>`;
+  }).join('');
+  document.getElementById('kpi-row').innerHTML=html;
+}
+
+// ─── Header ────────────────────────────────────────────────────────────────
+function buildHeader(){
+  // Find latest fecha across all markers
+  let latest='2000-01-01';
+  let total=0;
+  Object.values(DATA).forEach(section=>{
+    if(typeof section!=='object') return;
+    Object.values(section).forEach(pts=>{
+      if(!Array.isArray(pts)) return;
+      total+=pts.length;
+      pts.forEach(p=>{ if(p.fecha>latest) latest=p.fecha; });
+    });
+  });
+  document.getElementById('ultima-fecha').textContent=fmtDate(latest);
+  document.getElementById('total-marcadores').textContent=total+' registros';
+}
+
+// ─── Thyroideo ──────────────────────────────────────────────────────────────
+function buildTiroideo(){
+  const tsh=DATA.tiroideo.TSH||[];
+  const tshE=DATA.tiroideo.TSH_estimulada||[];
+  const tg=DATA.tiroideo.Tiroglobulina||[];
+  const tgE=DATA.tiroideo.Tiroglobulina_estimulada||[];
+
+  // TSH — combine all, mark stimulated differently
+  const allTSH=[...tsh,...tshE].sort((a,b)=>a.fecha.localeCompare(b.fecha));
+  const tshLabels=allTSH.map(p=>p.fecha);
+  const tshVals=allTSH.map(p=>p.valor);
+  const tshColors=allTSH.map(p=>{
+    if(p.estimulada) return C.gold;
+    if(p.flag==='H') return C.terracotta;
+    if(p.flag==='L') return C.navy;
+    return C.sage;
+  });
+  const tshR=allTSH.map(p=>p.estimulada?6:4);
+  const tshStyle=allTSH.map(p=>p.estimulada?'circle':'circle');
+
+  if(charts['ch-tsh']) charts['ch-tsh'].destroy();
+  charts['ch-tsh']=new Chart(document.getElementById('ch-tsh'),{
+    type:'line',
+    data:{labels:tshLabels,datasets:[{
+      label:'TSH',data:tshVals,
+      borderColor:C.sage,borderWidth:1.8,
+      backgroundColor:tshColors,
+      pointBackgroundColor:allTSH.map(p=>p.estimulada?'transparent':tshColors[allTSH.indexOf(p)]),
+      pointBorderColor:tshColors,
+      pointBorderWidth:allTSH.map(p=>p.estimulada?2:0),
+      pointRadius:tshR,pointHoverRadius:7,
+      tension:0.15,dp:3,
+    }]},
+    options:{
+      responsive:true,maintainAspectRatio:false,animation:{duration:300},
+      interaction:{mode:'index',intersect:false},
+      plugins:{legend:{display:false},tooltip:{...tooltipBase,callbacks:{
+        title:items=>items[0]?fmtDate(items[0].label):'',
+        label:ctx=>{
+          const p=allTSH[ctx.dataIndex];
+          return 'TSH: '+fmt(ctx.parsed.y,3)+' µUI/mL'+(p.estimulada?' (Thyrogen)':'');
+        }
+      }}},
+      scales:{x:scaleX(),y:scaleY({ticks:{callback:v=>fmt(v,3)}})}
+    }
+  });
+
+  // Tiroglobulina
+  const allTG=[...tg,...tgE].sort((a,b)=>a.fecha.localeCompare(b.fecha));
+  const tgLabels=allTG.map(p=>p.fecha);
+  const tgVals=allTG.map(p=>p.valor);
+  const tgColors=allTG.map(p=>p.estimulada?C.gold:(p.flag==='H'?C.terracotta:C.navy));
+  if(charts['ch-tg']) charts['ch-tg'].destroy();
+  charts['ch-tg']=new Chart(document.getElementById('ch-tg'),{
+    type:'line',
+    data:{labels:tgLabels,datasets:[{
+      label:'Tiroglobulina',data:tgVals,
+      borderColor:C.navy,borderWidth:1.8,
+      backgroundColor:tgColors,
+      pointBackgroundColor:allTG.map(p=>p.estimulada?'transparent':tgColors[allTG.indexOf(p)]),
+      pointBorderColor:tgColors,
+      pointBorderWidth:allTG.map(p=>p.estimulada?2:0),
+      pointRadius:allTG.map(p=>p.estimulada?7:5),pointHoverRadius:8,
+      tension:0.15,dp:2,
+    }]},
+    options:{
+      responsive:true,maintainAspectRatio:false,animation:{duration:300},
+      interaction:{mode:'index',intersect:false},
+      plugins:{legend:{display:false},tooltip:{...tooltipBase,callbacks:{
+        title:items=>items[0]?fmtDate(items[0].label):'',
+        label:ctx=>{
+          const p=allTG[ctx.dataIndex];
+          return 'Tiroglobulina: '+fmt(ctx.parsed.y,2)+' ng/mL'+(p.estimulada?' (Thyrogen)':'');
+        }
+      }}},
+      scales:{x:scaleX(),y:scaleY({ticks:{callback:v=>fmt(v,2)}})}
+    }
+  });
+
+  // T3L T4L AntiTg AntiTPO
+  function simple(id,pts,color,label,dp=2){
+    if(!pts||!pts.length) return;
+    const labels=pts.map(p=>p.fecha);
+    const values=pts.map(p=>p.valor);
+    const pc=pts.map(p=>p.flag==='H'?C.terracotta:p.flag==='L'?C.navy:color);
+    if(charts[id]) charts[id].destroy();
+    charts[id]=new Chart(document.getElementById(id),{
+      type:'line',
+      data:{labels,datasets:[{label,data:values,borderColor:color,borderWidth:1.6,
+        backgroundColor:pc,pointBackgroundColor:pc,pointBorderColor:pc,
+        pointRadius:4,pointHoverRadius:6,tension:0.2,dp}]},
+      options:{responsive:true,maintainAspectRatio:false,animation:{duration:300},
+        interaction:{mode:'index',intersect:false},
+        plugins:{legend:{display:false},tooltip:{...tooltipBase}},
+        scales:{x:scaleX(),y:scaleY({ticks:{callback:v=>fmt(v,dp)}})}}
+    });
+  }
+  simple('ch-t3l',DATA.tiroideo.T3L,C.terracotta,'T3L',2);
+  simple('ch-t4l',DATA.tiroideo.T4L,C.plum,'T4L',2);
+  simple('ch-antitg',DATA.tiroideo.AntiTg,C.gold,'AntiTg',2);
+  simple('ch-antitpo',DATA.tiroideo.AntiTPO,C.sage,'AntiTPO',2);
+}
+
+// ─── Metabólico ─────────────────────────────────────────────────────────────
+function buildMetabolico(){
+  function simple(id,pts,color,label,dp=1,refMin,refMax){
+    if(!pts||!pts.length) return;
+    const labels=pts.map(p=>p.fecha);
+    const values=pts.map(p=>p.valor);
+    const pc=pts.map(p=>p.flag==='H'?C.terracotta:p.flag==='L'?C.navy:color);
+    if(charts[id]) charts[id].destroy();
+    charts[id]=new Chart(document.getElementById(id),{
+      type:'line',
+      data:{labels,datasets:[{label,data:values,borderColor:color,borderWidth:1.8,
+        backgroundColor:pc,pointBackgroundColor:pc,pointBorderColor:pc,
+        pointRadius:5,pointHoverRadius:7,tension:0.2,dp}]},
+      options:{responsive:true,maintainAspectRatio:false,animation:{duration:300},
+        interaction:{mode:'index',intersect:false},
+        plugins:{legend:{display:false},tooltip:{...tooltipBase}},
+        scales:{x:scaleX(),y:scaleY({ticks:{callback:v=>fmt(v,dp)}})}}
+    });
+  }
+  const G=DATA.metabolico.Glucosa||[];
+  simple('ch-glucosa',G,C.gold,'Glucosa',1,70,100);
+  const gVals=G.map(p=>p.valor).filter(v=>v!=null);
+  const mn=gVals.length?Math.min(...gVals):null;
+  const mx=gVals.length?Math.max(...gVals):null;
+  const avg=gVals.length?gVals.reduce((a,b)=>a+b,0)/gVals.length:null;
+  const latest=G.length?G[G.length-1]:null;
+  document.getElementById('strip-glucosa').innerHTML=`
+    <div><div class="s-l">Última</div><div class="s-v">${fmt(latest?.valor,1)}<span class="s-u">mg/dL</span></div></div>
+    <div><div class="s-l">Media</div><div class="s-v">${fmt(avg,1)}</div></div>
+    <div><div class="s-l">Rango</div><div class="s-v">${fmt(mn,0)}–${fmt(mx,0)}</div></div>
+    <div><div class="s-l">Puntos</div><div class="s-v">${gVals.length}</div></div>
+  `;
+  simple('ch-hba1c',DATA.metabolico.HbA1c,C.terracotta,'HbA1c',1);
+  simple('ch-insulina',DATA.metabolico.Insulina,C.plum,'Insulina',2);
+  simple('ch-homa',DATA.metabolico['HOMA-IR'],C.navy,'HOMA-IR',2);
+}
+
+// ─── Lipídico ───────────────────────────────────────────────────────────────
+function buildLipidico(){
+  const CT=DATA.lipidico['Colesterol Total']||[];
+  const LDL=DATA.lipidico.LDL||[];
+  const HDL=DATA.lipidico.HDL||[];
+  const allDates=[...new Set([...CT,...LDL,...HDL].map(p=>p.fecha))].sort();
+
+  function align(pts,dates){
+    const m=new Map(pts.map(p=>[p.fecha,p.valor]));
+    return dates.map(d=>m.get(d)??null);
+  }
+
+  if(charts['ch-lipidos']) charts['ch-lipidos'].destroy();
+  charts['ch-lipidos']=new Chart(document.getElementById('ch-lipidos'),{
+    type:'line',
+    data:{labels:allDates,datasets:[
+      {label:'Colesterol Total',data:align(CT,allDates),borderColor:C.terracotta,backgroundColor:'transparent',borderWidth:2,pointRadius:4,pointHoverRadius:6,tension:0.2,dp:1},
+      {label:'LDL',data:align(LDL,allDates),borderColor:C.navy,backgroundColor:'transparent',borderWidth:2,pointRadius:4,pointHoverRadius:6,tension:0.2,dp:1},
+      {label:'HDL',data:align(HDL,allDates),borderColor:C.sage,backgroundColor:'transparent',borderWidth:2,pointRadius:4,pointHoverRadius:6,tension:0.2,dp:1},
+    ]},
+    options:{responsive:true,maintainAspectRatio:false,animation:{duration:300},
+      interaction:{mode:'index',intersect:false},
+      plugins:{legend:{display:true,labels:{color:C.muted,font:{size:11},boxWidth:12}},tooltip:{...tooltipBase}},
+      scales:{x:scaleX(),y:scaleY({ticks:{callback:v=>fmt(v,0)+'mg'}})}
+    }
+  });
+
+  const ctL=CT.length?CT[CT.length-1]:null;
+  const ldlL=LDL.length?LDL[LDL.length-1]:null;
+  const hdlL=HDL.length?HDL[HDL.length-1]:null;
+  document.getElementById('strip-lipidos').innerHTML=`
+    <div><div class="s-l">Colesterol</div><div class="s-v">${fmt(ctL?.valor,0)}<span class="s-u">mg/dL</span></div></div>
+    <div><div class="s-l">LDL</div><div class="s-v">${fmt(ldlL?.valor,1)}<span class="s-u">mg/dL</span></div></div>
+    <div><div class="s-l">HDL</div><div class="s-v">${fmt(hdlL?.valor,1)}<span class="s-u">mg/dL</span></div></div>
+  `;
+
+  const TG=DATA.lipidico.Trigliceridos||[];
+  if(!TG.length) return;
+  const tgc=TG.map(p=>p.flag==='H'?C.terracotta:C.gold);
+  if(charts['ch-trig']) charts['ch-trig'].destroy();
+  charts['ch-trig']=new Chart(document.getElementById('ch-trig'),{
+    type:'line',
+    data:{labels:TG.map(p=>p.fecha),datasets:[{label:'Triglicéridos',data:TG.map(p=>p.valor),
+      borderColor:C.gold,backgroundColor:tgc,pointBackgroundColor:tgc,pointBorderColor:tgc,
+      borderWidth:1.8,pointRadius:4,pointHoverRadius:6,tension:0.2,dp:1}]},
+    options:{responsive:true,maintainAspectRatio:false,animation:{duration:300},
+      interaction:{mode:'index',intersect:false},
+      plugins:{legend:{display:false},tooltip:{...tooltipBase}},
+      scales:{x:scaleX(),y:scaleY({ticks:{callback:v=>fmt(v,0)}})}}
+  });
+}
+
+// ─── Inmune ─────────────────────────────────────────────────────────────────
+function buildInmune(){
+  function simple(id,pts,color,label,dp=1){
+    if(!pts||!pts.length) return;
+    const pc=pts.map(p=>p.flag==='H'?C.terracotta:p.flag==='L'?C.navy:color);
+    if(charts[id]) charts[id].destroy();
+    charts[id]=new Chart(document.getElementById(id),{
+      type:'line',
+      data:{labels:pts.map(p=>p.fecha),datasets:[{label,data:pts.map(p=>p.valor),
+        borderColor:color,backgroundColor:pc,pointBackgroundColor:pc,pointBorderColor:pc,
+        borderWidth:1.8,pointRadius:5,pointHoverRadius:7,tension:0.2,dp}]},
+      options:{responsive:true,maintainAspectRatio:false,animation:{duration:300},
+        interaction:{mode:'index',intersect:false},
+        plugins:{legend:{display:false},tooltip:{...tooltipBase}},
+        scales:{x:scaleX(),y:scaleY({ticks:{callback:v=>fmt(v,dp)}})}}
+    });
+  }
+  simple('ch-vitd',DATA.inmune.VitaminaD,C.gold,'Vitamina D',1);
+  simple('ch-pcr',DATA.inmune.PCR,C.terracotta,'PCR',2);
+  simple('ch-iga',DATA.inmune.IgA,C.sage,'IgA',1);
+  simple('ch-igg',DATA.inmune.IgG,C.navy,'IgG',1);
+  simple('ch-igm',DATA.inmune.IgM,C.plum,'IgM',1);
+}
+
+// ─── Hemograma ──────────────────────────────────────────────────────────────
+function buildHemograma(){
+  function simple(id,pts,color,label,dp=1){
+    if(!pts||!pts.length) return;
+    const pc=pts.map(p=>p.flag==='H'?C.terracotta:p.flag==='L'?C.navy:color);
+    if(charts[id]) charts[id].destroy();
+    charts[id]=new Chart(document.getElementById(id),{
+      type:'line',
+      data:{labels:pts.map(p=>p.fecha),datasets:[{label,data:pts.map(p=>p.valor),
+        borderColor:color,backgroundColor:pc,pointBackgroundColor:pc,pointBorderColor:pc,
+        borderWidth:1.8,pointRadius:4,pointHoverRadius:6,tension:0.2,dp}]},
+      options:{responsive:true,maintainAspectRatio:false,animation:{duration:300},
+        interaction:{mode:'index',intersect:false},
+        plugins:{legend:{display:false},tooltip:{...tooltipBase}},
+        scales:{x:scaleX(),y:scaleY({ticks:{callback:v=>fmt(v,dp)}})}}
+    });
+  }
+  simple('ch-hgb',DATA.hemograma.Hemoglobina,C.terracotta,'Hemoglobina',1);
+  simple('ch-wbc',DATA.hemograma.Leucocitos,C.navy,'Leucocitos',2);
+  simple('ch-plt',DATA.hemograma.Plaquetas,C.sage,'Plaquetas',0);
+  simple('ch-neutro',DATA.hemograma['Neutrofilos %'],C.gold,'Neutrófilos %',1);
+  simple('ch-linfo',DATA.hemograma['Linfocitos %'],C.plum,'Linfocitos %',1);
+}
+
+// ─── Reference table ─────────────────────────────────────────────────────────
+function buildTable(){
+  // Get latest value per marker
+  const latest=new Map();
+  Object.values(DATA).forEach(section=>{
+    if(typeof section!=='object') return;
+    Object.entries(section).forEach(([name,pts])=>{
+      if(!Array.isArray(pts)||!pts.length) return;
+      const l=pts[pts.length-1];
+      if(!latest.has(name)||l.fecha>latest.get(name).fecha){
+        latest.set(name,{...l,name});
+      }
+    });
+  });
+  const rows=[...latest.values()].sort((a,b)=>a.name.localeCompare(b.name));
+  const tbody=document.getElementById('ref-tbody');
+  tbody.innerHTML=rows.map(r=>{
+    const flagCls=r.flag==='H'?'H':r.flag==='L'?'L':'normal';
+    const flagTxt=r.flag==='H'?'Alto':r.flag==='L'?'Bajo':r.flag==='normal'?'Normal':'—';
+    return `<tr>
+      <td><strong>${r.name.replace('_estimulada','')}</strong></td>
+      <td>${fmtDate(r.fecha)}</td>
+      <td>${fmt(r.valor,r.valor<10?3:r.valor<100?1:0)}</td>
+      <td>${r.unidad||'—'}</td>
+      <td>${r.ref_min!=null?fmt(r.ref_min,r.ref_min<10?2:0):'—'}</td>
+      <td>${r.ref_max!=null?fmt(r.ref_max,r.ref_max<10?2:0):'—'}</td>
+      <td><span class="flag-badge ${flagCls}">${flagTxt}</span></td>
+      <td style="color:var(--muted);font-size:11px;">${r.proveedor||'—'}</td>
+    </tr>`;
+  }).join('');
+}
+
+// ─── Nav ─────────────────────────────────────────────────────────────────────
+document.querySelectorAll('.nav li').forEach(li=>{
+  li.addEventListener('click',()=>{
+    const tgt=document.getElementById(li.dataset.target);
+    if(tgt) tgt.scrollIntoView({behavior:'smooth',block:'start'});
+    document.querySelectorAll('.nav li').forEach(x=>x.classList.remove('current'));
+    li.classList.add('current');
+  });
+});
+
+// ─── Init ─────────────────────────────────────────────────────────────────────
+buildHeader();
+buildKPIs();
+buildTiroideo();
+buildMetabolico();
+buildLipidico();
+buildInmune();
+buildHemograma();
+buildTable();
+
+})();
+</script>
+</body>
+</html>
