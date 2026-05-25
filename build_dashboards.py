@@ -69,19 +69,19 @@ def get_connection():
 
 
 def fetch_data(conn, start_date, end_date):
-    """Pull all 5 WHOOP tables filtered to the date window."""
+    """Pull all WHOOP tables filtered to the date window."""
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
     # Cycles: daily strain and energy
     cur.execute("""
         SELECT
-            cycle_start::date AS d,
-            day_strain AS strain,
-            kilojoule,
+            start_time::date AS d,
+            strain,
+            kilojoules,
             average_heart_rate,
             max_heart_rate
         FROM whoop_cycles
-        WHERE cycle_start::date BETWEEN %s AND %s
+        WHERE start_time::date BETWEEN %s AND %s
         ORDER BY d
     """, (start_date, end_date))
     cycles = cur.fetchall()
@@ -89,33 +89,32 @@ def fetch_data(conn, start_date, end_date):
     # Recovery: HRV, RHR, SpO2, skin temp
     cur.execute("""
         SELECT
-            cycle_start::date AS d,
+            recovery_date AS d,
             recovery_score,
             hrv_rmssd_milli AS hrv,
             resting_heart_rate AS rhr,
             spo2_percentage AS spo2,
             skin_temp_celsius AS skin_temp
         FROM whoop_recovery
-        WHERE cycle_start::date BETWEEN %s AND %s
+        WHERE recovery_date BETWEEN %s AND %s
         ORDER BY d
     """, (start_date, end_date))
     recovery = cur.fetchall()
 
-    # Sleep: stages, performance, efficiency
+    # Sleep: stages, performance, efficiency (columns are in minutes not millis)
     cur.execute("""
         SELECT
-            sleep_start::date AS d,
-            total_in_bed_time_milli AS in_bed_ms,
-            total_awake_time_milli AS awake_ms,
-            total_light_sleep_time_milli AS light_ms,
-            total_slow_wave_sleep_time_milli AS deep_ms,
-            total_rem_sleep_time_milli AS rem_ms,
-            sleep_performance_percentage AS performance,
+            start_time::date AS d,
+            (light_sleep_minutes + slow_wave_sleep_minutes + rem_sleep_minutes + awake_minutes) AS in_bed_min,
+            awake_minutes,
+            light_sleep_minutes AS light_min,
+            slow_wave_sleep_minutes AS deep_min,
+            rem_sleep_minutes AS rem_min,
+            performance_percentage AS performance,
             sleep_efficiency_percentage AS efficiency,
-            sleep_end AS end_ts
+            end_time AS end_ts
         FROM whoop_sleep
-        WHERE sleep_start::date BETWEEN %s AND %s
-          AND nap = false
+        WHERE start_time::date BETWEEN %s AND %s
         ORDER BY d
     """, (start_date, end_date))
     sleep = cur.fetchall()
@@ -123,24 +122,17 @@ def fetch_data(conn, start_date, end_date):
     # Workouts: sport, strain, HR, duration
     cur.execute("""
         SELECT
-            workout_start::date AS d,
-            sport_id,
+            start_time::date AS d,
             sport_name,
             strain,
-            kilojoule,
+            kilojoules,
             average_heart_rate,
             max_heart_rate,
-            workout_start AS start_ts,
-            workout_end AS end_ts,
-            zone_zero_milli,
-            zone_one_milli,
-            zone_two_milli,
-            zone_three_milli,
-            zone_four_milli,
-            zone_five_milli
+            start_time AS start_ts,
+            end_time AS end_ts
         FROM whoop_workouts
-        WHERE workout_start::date BETWEEN %s AND %s
-        ORDER BY workout_start
+        WHERE start_time::date BETWEEN %s AND %s
+        ORDER BY start_time
     """, (start_date, end_date))
     workouts = cur.fetchall()
 
@@ -220,9 +212,9 @@ def compute_workout_kcal_per_day(workouts_by_day, all_dates):
     out = []
     for d in all_dates:
         day_total = sum(
-            kj_to_kcal(w["kilojoule"]) or 0
+            kj_to_kcal(w["kilojoules"]) or 0
             for w in workouts_by_day.get(d, [])
-            if w["kilojoule"] is not None
+            if w["kilojoules"] is not None
         )
         out.append(round(day_total, 1) if day_total > 0 else 0)
     return out
@@ -283,9 +275,9 @@ def compute_restorative_sleep_pct(sleep_rows):
     """
     out = []
     for s in sleep_rows:
-        deep = s["deep_ms"] or 0
-        rem = s["rem_ms"] or 0
-        light = s["light_ms"] or 0
+        deep = s["deep_min"] or 0
+        rem = s["rem_min"] or 0
+        light = s.get("light_min") or 0
         total = deep + rem + light
         if total == 0:
             out.append(None)
@@ -301,6 +293,7 @@ def compute_sleep_regularity_weekly(sleep_rows, all_dates):
     rendering simplicity we return a per-day list where each day
     carries its week's SD.
     """
+    # Map date string -> wake hour (fractional)
     wake_by_date = {}
     for s in sleep_rows:
         if s["end_ts"] is None:
@@ -309,6 +302,7 @@ def compute_sleep_regularity_weekly(sleep_rows, all_dates):
         wake_hour = dt.hour + dt.minute / 60 + dt.second / 3600
         wake_by_date[s["d"].isoformat() if hasattr(s["d"], "isoformat") else str(s["d"])] = wake_hour
 
+    # Group all_dates by ISO week, compute SD per week
     week_sds = {}
     week_buckets = {}
     for d_str in all_dates:
@@ -324,6 +318,7 @@ def compute_sleep_regularity_weekly(sleep_rows, all_dates):
         else:
             week_sds[key] = None
 
+    # Map back to per-day
     out = []
     for d_str in all_dates:
         d = date.fromisoformat(d_str)
@@ -348,19 +343,10 @@ def compute_wake_hour(sleep_rows, all_dates):
 
 def compute_workout_zone_distribution(workout):
     """
-    Metric 7: identify dominant zone for a workout.
-    Returns the zone label (Z1..Z5) where the most time was spent.
+    Metric 7: zone distribution. Zone columns no longer exist in schema.
+    Returns None gracefully.
     """
-    zones = {
-        "Z1": workout.get("zone_one_milli") or 0,
-        "Z2": workout.get("zone_two_milli") or 0,
-        "Z3": workout.get("zone_three_milli") or 0,
-        "Z4": workout.get("zone_four_milli") or 0,
-        "Z5": workout.get("zone_five_milli") or 0,
-    }
-    if sum(zones.values()) == 0:
-        return None
-    return max(zones, key=zones.get)
+    return None
 
 
 def compute_workout_duration_min(workout):
@@ -377,12 +363,14 @@ def compute_workout_duration_min(workout):
 
 def build_daily_series(raw, start_date, end_date):
     """Assemble per-day arrays aligned to a continuous date axis."""
+    # Generate continuous date axis
     days = []
     d = start_date
     while d <= end_date:
         days.append(d.isoformat())
         d += timedelta(days=1)
 
+    # Index raw data by date string
     cycles_by_date = {
         (c["d"].isoformat() if hasattr(c["d"], "isoformat") else str(c["d"])): c
         for c in raw["cycles"]
@@ -400,9 +388,10 @@ def build_daily_series(raw, start_date, end_date):
         key = w["d"].isoformat() if hasattr(w["d"], "isoformat") else str(w["d"])
         workouts_by_date.setdefault(key, []).append(w)
 
+    # Build aligned series
     strain = [cycles_by_date[d]["strain"] if d in cycles_by_date else None for d in days]
     kcal_total = [
-        kj_to_kcal(cycles_by_date[d]["kilojoule"]) if d in cycles_by_date else None
+        kj_to_kcal(cycles_by_date[d]["kilojoules"]) if d in cycles_by_date else None
         for d in days
     ]
     workout_kcal = compute_workout_kcal_per_day(workouts_by_date, days)
@@ -434,17 +423,18 @@ def build_daily_series(raw, start_date, end_date):
             deep_min.append(None)
             rem_min.append(None)
         else:
-            in_bed = s["in_bed_ms"] or 0
-            awake = s["awake_ms"] or 0
-            sleep_min.append(ms_to_min(in_bed - awake))
+            in_bed = s["in_bed_min"] or 0
+            awake = s["awake_minutes"] or 0
+            sleep_min.append(round(in_bed - awake, 1))
             sleep_perf.append(s["performance"])
             sleep_eff.append(s["efficiency"])
-            deep_min.append(ms_to_min(s["deep_ms"]))
-            rem_min.append(ms_to_min(s["rem_ms"]))
+            deep_min.append(s["deep_min"])
+            rem_min.append(s["rem_min"])
 
     restorative_pct = compute_restorative_sleep_pct(
         [s for s in sleep_rows_aligned if s is not None]
     )
+    # Re-align to all days
     restorative_aligned = []
     rp_idx = 0
     for s in sleep_rows_aligned:
@@ -490,7 +480,7 @@ def build_workout_series(raw):
         out["st"].append(safe_round(w.get("strain"), 1))
         out["mn"].append(compute_workout_duration_min(w))
         out["hr"].append(w.get("average_heart_rate"))
-        out["kc"].append(kj_to_kcal(w.get("kilojoule")))
+        out["kc"].append(kj_to_kcal(w.get("kilojoules")))
         out["z"].append(compute_workout_zone_distribution(w))
     return out
 
@@ -552,6 +542,7 @@ def main():
 
     print(f"Building dashboards for {start_date} to {end_date} ({args.days} days)")
 
+    # 1. Pull from Supabase
     print("Connecting to Supabase...")
     conn = get_connection()
     print("Fetching WHOOP tables...")
@@ -560,9 +551,11 @@ def main():
     print(f"  cycles: {len(raw['cycles'])}, recovery: {len(raw['recovery'])}, "
           f"sleep: {len(raw['sleep'])}, workouts: {len(raw['workouts'])}")
 
+    # 2. Compute metrics and assemble payload
     print("Computing 12 derived metrics...")
     payload = build_payload(raw, start_date, end_date)
 
+    # 3. Render both dashboards
     print("Rendering dashboards...")
     render_template(
         SCRIPT_DIR / "nutritionist_template.html",
