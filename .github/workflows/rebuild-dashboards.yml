@@ -2,22 +2,14 @@ name: Rebuild Dashboards
 
 on:
   schedule:
-    # 7am ET year-round (12:00 UTC covers EDT; 11:00 UTC covers EST — this runs at 8am max)
-    - cron: "0 12 * * *"
+    - cron: '0 18 * * *'
   workflow_dispatch:
-    inputs:
-      days:
-        description: "Lookback window in days (default: 365)"
-        required: false
-        default: "365"
-
-permissions:
-  contents: write
 
 jobs:
   build:
     runs-on: ubuntu-latest
-
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
@@ -25,23 +17,21 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: '3.11'
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: pip install psycopg2-binary python-dateutil
 
       - name: Build dashboards
         env:
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
         run: |
-          DAYS="${{ github.event.inputs.days }}"
-          DAYS="${DAYS:-365}"
-          python build_dashboards.py --days "$DAYS"
+          DAYS="365" python build_dashboards.py
 
       - name: Commit rebuilt dashboards
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add martinez_nutritionist_dashboard.html martinez_oncologist_dashboard.html
-          git diff --cached --quiet || git commit -m "chore: rebuild dashboards $(date -u +'%Y-%m-%d %H:%M UTC')"
+          git diff --cached --quiet || git commit -m "chore: rebuild dashboards $(date -u '+%Y-%m-%d %H:%M') UTC"
           git push
