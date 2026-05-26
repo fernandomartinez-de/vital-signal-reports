@@ -45,27 +45,8 @@ WEIGHT_KG = 65.2  # updated from InBody 25 may 2026
 MAX_HR = 196
 DEFAULT_LOOKBACK_DAYS = 365
 
-# InBody measurements — add new entries after each scan
-INBODY_DATA = [
-    {
-        "fecha": "2026-05-25",
-        "peso": 65.2,
-        "mme": 28.7,
-        "masa_grasa": 14.3,
-        "pgc": 21.9,
-        "grasa_visceral": 5,
-        "tmb": 1470,
-        "score": 74,
-        "angulo_fase": 6.8,
-        "mlg": 50.9,
-        "agua": 37.4,
-        "rel_cintura_cadera": 0.88,
-        "peso_ideal": 60.6,
-        "control_peso": -4.6,
-        "control_grasa": -5.2,
-        "control_musculo": 0.6,
-    },
-]
+# InBody measurements pulled from Supabase at runtime (see fetch_inbody_data)
+INBODY_DATA = []  # populated at runtime
 
 # HR zone anchors (% of max HR). Standard 5-zone model.
 HR_ZONES = {
@@ -88,6 +69,44 @@ def get_connection():
     if not db_url:
         sys.exit("ERROR: SUPABASE_DB_URL environment variable not set")
     return psycopg2.connect(db_url)
+
+
+def fetch_inbody_data(conn):
+    """Pull all InBody measurements from Supabase, ordered by date."""
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("""
+        SELECT fecha, peso, mme, masa_grasa, pgc, mlg, agua, tmb, score,
+               angulo_fase, grasa_visceral, rel_cintura_cadera, imc,
+               peso_ideal, control_peso, control_grasa, control_musculo,
+               dispositivo, proveedor
+        FROM inbody_results
+        ORDER BY fecha ASC
+    """)
+    rows = cur.fetchall()
+    cur.close()
+    out = []
+    for r in rows:
+        out.append({
+            "fecha": r["fecha"].isoformat(),
+            "peso": float(r["peso"]) if r["peso"] else None,
+            "mme": float(r["mme"]) if r["mme"] else None,
+            "masa_grasa": float(r["masa_grasa"]) if r["masa_grasa"] else None,
+            "pgc": float(r["pgc"]) if r["pgc"] else None,
+            "mlg": float(r["mlg"]) if r["mlg"] else None,
+            "agua": float(r["agua"]) if r["agua"] else None,
+            "tmb": int(r["tmb"]) if r["tmb"] else None,
+            "score": int(r["score"]) if r["score"] else None,
+            "angulo_fase": float(r["angulo_fase"]) if r["angulo_fase"] else None,
+            "grasa_visceral": int(r["grasa_visceral"]) if r["grasa_visceral"] else None,
+            "rel_cintura_cadera": float(r["rel_cintura_cadera"]) if r["rel_cintura_cadera"] else None,
+            "imc": float(r["imc"]) if r["imc"] else None,
+            "peso_ideal": float(r["peso_ideal"]) if r["peso_ideal"] else None,
+            "control_peso": float(r["control_peso"]) if r["control_peso"] else None,
+            "control_grasa": float(r["control_grasa"]) if r["control_grasa"] else None,
+            "control_musculo": float(r["control_musculo"]) if r["control_musculo"] else None,
+            "dispositivo": r["dispositivo"] or "InBody270S",
+        })
+    return out
 
 
 def fetch_data(conn, start_date, end_date):
@@ -507,7 +526,7 @@ def build_workout_series(raw):
     return out
 
 
-def build_payload(raw, start_date, end_date):
+def build_payload(raw, start_date, end_date, inbody=None):
     """Compose final payload matching the dashboard template schema."""
     daily = build_daily_series(raw, start_date, end_date)
     workouts = build_workout_series(raw)
@@ -525,7 +544,7 @@ def build_payload(raw, start_date, end_date):
         },
         "daily": daily,
         "workouts": workouts,
-        "inbody": INBODY_DATA,
+        "inbody": inbody or [],
     }
 
 
@@ -586,13 +605,17 @@ def main():
     conn = get_connection()
     print("Fetching WHOOP tables...")
     raw = fetch_data(conn, start_date, end_date)
-    conn.close()
     print(f"  cycles: {len(raw['cycles'])}, recovery: {len(raw['recovery'])}, "
           f"sleep: {len(raw['sleep'])}, workouts: {len(raw['workouts'])}")
 
+    print("Fetching InBody data...")
+    inbody = fetch_inbody_data(conn)
+    print(f"  {len(inbody)} InBody measurements")
+    conn.close()
+
     # 2. Compute metrics and assemble payload
-    print("Computing 12 derived metrics...")
-    payload = build_payload(raw, start_date, end_date)
+    print("Computing derived metrics...")
+    payload = build_payload(raw, start_date, end_date, inbody=inbody)
 
     # 3. Render both dashboards
     print("Rendering dashboards...")
