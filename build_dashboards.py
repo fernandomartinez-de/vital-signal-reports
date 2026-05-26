@@ -40,10 +40,32 @@ import psycopg2.extras
 # =============================================================================
 
 PATIENT_NAME = "Fernando Martinez"
-HEIGHT_M = 1.69
-WEIGHT_KG = 69.65
+HEIGHT_M = 1.66   # updated from InBody 25 may 2026
+WEIGHT_KG = 65.2  # updated from InBody 25 may 2026
 MAX_HR = 196
 DEFAULT_LOOKBACK_DAYS = 365
+
+# InBody measurements — add new entries after each scan
+INBODY_DATA = [
+    {
+        "fecha": "2026-05-25",
+        "peso": 65.2,
+        "mme": 28.7,
+        "masa_grasa": 14.3,
+        "pgc": 21.9,
+        "grasa_visceral": 5,
+        "tmb": 1470,
+        "score": 74,
+        "angulo_fase": 6.8,
+        "mlg": 50.9,
+        "agua": 37.4,
+        "rel_cintura_cadera": 0.88,
+        "peso_ideal": 60.6,
+        "control_peso": -4.6,
+        "control_grasa": -5.2,
+        "control_musculo": 0.6,
+    },
+]
 
 # HR zone anchors (% of max HR). Standard 5-zone model.
 HR_ZONES = {
@@ -503,6 +525,7 @@ def build_payload(raw, start_date, end_date):
         },
         "daily": daily,
         "workouts": workouts,
+        "inbody": INBODY_DATA,
     }
 
 
