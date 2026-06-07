@@ -74,7 +74,7 @@ ON CONFLICT DO NOTHING
 INBODY_INSERT_SQL = """
 INSERT INTO inbody_results (fecha, archivo, peso, mme, masa_grasa, pgc, mlg, agua, tmb, score, angulo_fase, grasa_visceral, rel_cintura_cadera, imc, peso_ideal, control_peso, control_grasa, control_musculo, dispositivo, proveedor)
 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-ON CONFLICT (fecha, archivo) DO NOTHING
+ON CONFLICT (fecha) DO NOTHING
 """
 
 # ── Google Drive ──────────────────────────────────────────────────────────────
