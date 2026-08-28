@@ -141,15 +141,18 @@ def get_processed_inbody(conn):
 
 # ── Filename parsing ──────────────────────────────────────────────────────────
 def parse_filename(filename):
+    """Returns (fecha, año, proveedor, estimulada). fecha/año are None when the
+    filename's date segment doesn't parse — callers must skip inserting rather
+    than falling back to today's date, which would silently mis-date the record.
+    Run clean_medical_drive.py to fix filenames like this before they get here."""
     base = filename.replace(".pdf", "").replace(".jpg", "").replace(".jpeg", "").replace(".png", "")
     parts = base.split("_")
     try:
         fecha = date.fromisoformat(parts[0])
         año = fecha.year
-    except:
-        fecha = date.today()
-        año = fecha.year
-    
+    except (ValueError, IndexError):
+        fecha, año = None, None
+
     name_lower = filename.lower()
     if "labcorp" in name_lower:
         proveedor = "Labcorp NY"
@@ -245,13 +248,19 @@ def insert_labs(conn, fecha, año, proveedor, archivo, rows, estimulada):
 
 def insert_inbody(conn, data, archivo, proveedor):
     cur = conn.cursor()
+    # The date comes from Claude's vision reading of the InBody image itself
+    # (not the filename). If it's missing or unparseable, skip the insert
+    # rather than silently stamping it with today's date.
+    raw_fecha = data.get("fecha")
     try:
-        # Parse fecha from data or use today
-        try:
-            fecha = date.fromisoformat(data.get("fecha", date.today().isoformat()))
-        except:
-            fecha = date.today()
-        
+        fecha = date.fromisoformat(raw_fecha) if raw_fecha else None
+    except (ValueError, TypeError):
+        fecha = None
+    if fecha is None:
+        print(f"    SKIPPED — InBody date unparseable/missing ({raw_fecha!r}), not inserting")
+        cur.close()
+        return 0
+    try:
         cur.execute(INBODY_INSERT_SQL, (
             fecha, archivo,
             data.get("peso"), data.get("mme"), data.get("masa_grasa"),
@@ -315,12 +324,18 @@ def main():
     client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
     total_lab_rows = 0
     total_inbody = 0
-    
+    skipped_labs = []
+
     # ── Process labs ──────────────────────────────────────────────────────────
     for pdf in new_labs:
         filename = pdf["name"]
         print(f"\nLab: {filename}")
         fecha, año, proveedor, estimulada = parse_filename(filename)
+        if fecha is None:
+            print(f"  SKIPPED — filename date unparseable, not inserting "
+                  f"(run clean_medical_drive.py to fix the name, then re-run ingest)")
+            skipped_labs.append(filename)
+            continue
         print(f"  {fecha} | {proveedor} | estimulada={estimulada}")
         try:
             pdf_bytes = download_file(service, pdf["id"])
@@ -361,6 +376,11 @@ def main():
     conn.close()
     print(f"\n{'='*50}")
     print(f"DONE — Lab rows inserted: {total_lab_rows} | InBody records inserted: {total_inbody}")
+    if skipped_labs:
+        print(f"SKIPPED {len(skipped_labs)} lab file(s) with an unparseable filename date "
+              f"(not inserted — run clean_medical_drive.py):")
+        for f in skipped_labs:
+            print(f"  - {f}")
 
 if __name__ == "__main__":
     main()

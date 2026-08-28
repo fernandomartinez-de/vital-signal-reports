@@ -1,0 +1,59 @@
+name: Clean Medical Drive Folder
+
+on:
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: 'Actually rename/move files on Drive (unchecked = dry run only)'
+        type: boolean
+        default: false
+  # Uncomment to run automatically before the nightly ingest once you've
+  # reviewed a few dry-run logs and are comfortable with it:
+  # schedule:
+  #   - cron: '0 7 * * *'
+
+jobs:
+  clean:
+    runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install poppler (for scanned PDF -> image rendering)
+        run: sudo apt-get update && sudo apt-get install -y poppler-utils
+
+      - name: Install dependencies
+        run: |
+          pip install \
+            anthropic \
+            pdfplumber \
+            pdf2image \
+            Pillow \
+            google-auth \
+            google-api-python-client \
+            google-auth-httplib2
+
+      - name: Run cleaner (dry run by default)
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GDRIVE_CREDENTIALS: ${{ secrets.GDRIVE_CREDENTIALS }}
+        run: |
+          if [ "${{ inputs.apply }}" = "true" ]; then
+            python clean_medical_drive.py --apply
+          else
+            python clean_medical_drive.py
+          fi
+
+      - name: Upload rename log
+        uses: actions/upload-artifact@v4
+        with:
+          name: rename_log
+          path: rename_log.csv
+          if-no-files-found: warn
