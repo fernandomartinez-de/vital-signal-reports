@@ -12,6 +12,9 @@ on:
   # schedule:
   #   - cron: '0 7 * * *'
 
+permissions:
+  contents: write
+
 jobs:
   clean:
     runs-on: ubuntu-latest
@@ -36,6 +39,7 @@ jobs:
             pdfplumber \
             pdf2image \
             Pillow \
+            openpyxl \
             google-auth \
             google-api-python-client \
             google-auth-httplib2
@@ -57,3 +61,11 @@ jobs:
           name: rename_log
           path: rename_log.csv
           if-no-files-found: warn
+
+      - name: Commit updated master tracker
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add tracker/master_tracker.xlsx
+          git diff --cached --quiet || git commit -m "chore: update master tracker $(date -u '+%Y-%m-%d %H:%M') UTC"
+          git push

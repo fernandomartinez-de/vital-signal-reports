@@ -27,6 +27,10 @@ Safety rules (do not relax these):
   - Dry-run by default. Nothing changes on Drive unless --apply is passed.
     Every run (dry-run or apply) writes rename_log.csv describing what it
     did or would do.
+  - Every run also (re)writes a master tracker workbook at tracker/master_tracker.xlsx
+    — one tab per category plus a Resumen tab and a _REVISAR tab — as a standing
+    inventory of everything in the Medical folder. This happens on dry runs too,
+    since building the tracker never touches Drive.
 
 Auth: same service-account pattern as ingest_labs_gdrive.py, via the
 GDRIVE_CREDENTIALS secret. Unlike the ingest (readonly), this needs the
@@ -34,7 +38,7 @@ service account to have Editor access on the Medical folder, because it
 renames and moves files.
 """
 import os, io, sys, csv, re, json, base64, hashlib, argparse
-from datetime import date
+from datetime import date, datetime, timezone
 from collections import defaultdict
 
 from google.oauth2 import service_account
@@ -43,15 +47,21 @@ from googleapiclient.http import MediaIoBaseDownload
 import anthropic
 import pdfplumber
 from pdf2image import convert_from_bytes
+from openpyxl import Workbook
+from openpyxl.styles import Font, PatternFill
+from openpyxl.utils import get_column_letter
 
 # ── Config ────────────────────────────────────────────────────────────────────
 GDRIVE_FOLDER_ID = "1_pB5M_-xqWU-jNYykK83fhZiWc5ldrS2"  # Medical/
 SCOPES = ["https://www.googleapis.com/auth/drive"]  # needs write (Editor on the folder)
 MODEL = "claude-sonnet-4-20250514"
 
-CATEGORIES = {"labs", "radiologia", "ultrasonidos", "inbody", "patologia"}
+# Ordered (not a set) so the tracker's tabs come out in a stable, sensible order.
+CATEGORIES_ORDERED = ["labs", "radiologia", "ultrasonidos", "inbody", "patologia"]
+CATEGORIES = set(CATEGORIES_ORDERED)
 KNOWN_PROVIDERS = {"quest-mx", "quest-usa", "labcorp", "hospital-angeles-lomas"}
 REVISAR_FOLDER_NAME = "_REVISAR"
+DEFAULT_TRACKER_PATH = os.path.join("tracker", "master_tracker.xlsx")
 
 MIN_TEXT_LEN_FOR_TEXT_LAYER = 40  # below this, treat the PDF as scanned/image-only
 
@@ -298,12 +308,88 @@ def build_target_name(fecha, categoria, proveedor, tipo, ext):
     return f"{fecha.isoformat()}_{slugify(categoria)}_{slugify(proveedor)}_{slugify(tipo)}{ext}"
 
 
+# ── Master tracker (tracker/master_tracker.xlsx) ─────────────────────────────
+TRACKER_COLUMNS = [
+    ("File Name", lambda r: r.get("new_name") or r.get("original_name")),
+    ("Date", lambda r: r.get("resolved_date", "")),
+    ("Provider", lambda r: r.get("proveedor", "")),
+    ("Type", lambda r: r.get("tipo", "")),
+    ("Year", lambda r: r.get("target_year", "")),
+    ("Current Path", lambda r: r.get("original_path", "")),
+    ("Target Path", lambda r: r.get("new_path", "")),
+    ("Status", lambda r: r.get("action", "")),
+    ("Notes", lambda r: r.get("reason", "")),
+    ("Drive Link", lambda r: f"https://drive.google.com/file/d/{r['file_id']}/view" if r.get("file_id") else ""),
+]
+
+HEADER_FILL = PatternFill(start_color="1F2937", end_color="1F2937", fill_type="solid")
+HEADER_FONT = Font(color="FFFFFF", bold=True)
+
+
+def _write_sheet(wb, title, records):
+    ws = wb.create_sheet(title=title[:31])  # Excel sheet-name length limit
+    ws.append([col_name for col_name, _ in TRACKER_COLUMNS])
+    for cell in ws[1]:
+        cell.font = HEADER_FONT
+        cell.fill = HEADER_FILL
+    for r in sorted(records, key=lambda r: (r.get("resolved_date") or "", r.get("original_path", ""))):
+        ws.append([getter(r) for _, getter in TRACKER_COLUMNS])
+    ws.freeze_panes = "A2"
+    for i, (col_name, _) in enumerate(TRACKER_COLUMNS, start=1):
+        widest = max([len(col_name)] + [len(str(row[i - 1].value or "")) for row in ws.iter_rows(min_row=2)])
+        ws.column_dimensions[get_column_letter(i)].width = min(max(widest + 2, 10), 60)
+    return ws
+
+
+def build_master_tracker(records, tracker_path, apply_changes):
+    """(Re)writes the whole tracker workbook from this run's records — one tab per
+    category, a Resumen (summary) tab, and a _REVISAR tab for anything quarantined,
+    duplicate, errored, or ignored. Safe to call on a dry run: it only writes the
+    .xlsx file, never touches Drive."""
+    by_category = defaultdict(list)
+    revisar = []
+    for r in records:
+        action = r.get("action")
+        categoria = r.get("categoria")
+        if action in ("quarantine", "duplicate", "error", "ignored") or not categoria or categoria not in CATEGORIES:
+            revisar.append(r)
+        else:
+            by_category[categoria].append(r)
+
+    wb = Workbook()
+    wb.remove(wb.active)  # drop the default blank sheet
+
+    summary = wb.create_sheet(title="Resumen")
+    summary.append(["Master Tracker — Medical Drive folder"])
+    summary["A1"].font = Font(bold=True, size=14)
+    summary.append(["Last updated (UTC)", datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")])
+    summary.append(["Mode", "apply (changes executed)" if apply_changes else "dry run (plan only, nothing changed on Drive)"])
+    summary.append(["Total files scanned", len(records)])
+    summary.append([])
+    summary.append(["Category", "Files"])
+    for cell in summary[summary.max_row]:
+        cell.font = Font(bold=True)
+    for cat in CATEGORIES_ORDERED:
+        summary.append([cat, len(by_category.get(cat, []))])
+    summary.append(["_REVISAR (needs manual review)", len(revisar)])
+    for col, width in zip("AB", (34, 50)):
+        summary.column_dimensions[col].width = width
+
+    for cat in CATEGORIES_ORDERED:
+        _write_sheet(wb, cat, by_category.get(cat, []))
+    _write_sheet(wb, REVISAR_FOLDER_NAME, revisar)
+
+    os.makedirs(os.path.dirname(tracker_path) or ".", exist_ok=True)
+    wb.save(tracker_path)
+
+
 # ── Main sweep ────────────────────────────────────────────────────────────────
 def main():
     ap = argparse.ArgumentParser(description="Clean up the Medical Google Drive folder.")
     ap.add_argument("--apply", action="store_true", help="Actually rename/move/quarantine on Drive. Default is dry-run.")
     ap.add_argument("--year", default=None, help="Only sweep this year subfolder (e.g. 2024). Default: whole tree.")
     ap.add_argument("--log", default="rename_log.csv", help="Path to write the CSV log to.")
+    ap.add_argument("--tracker", default=DEFAULT_TRACKER_PATH, help="Path to write the master tracker .xlsx to.")
     args = ap.parse_args()
 
     apply_changes = args.apply
@@ -488,12 +574,17 @@ def main():
             row["applied"] = apply_changes and r.get("action") not in ("no_change", "ignored", "error")
             w.writerow(row)
 
+    # 7. (Re)build the master tracker workbook — one tab per category. Safe on a
+    # dry run too; this only writes a local .xlsx, it never touches Drive.
+    build_master_tracker(records, args.tracker, apply_changes)
+
     counts = defaultdict(int)
     for r in records:
         counts[r.get("action", "quarantine")] += 1
     print(f"\n{'='*50}")
     print(f"DONE — {len(records)} files scanned. " + ", ".join(f"{k}={v}" for k, v in sorted(counts.items())))
     print(f"Log written to {args.log}")
+    print(f"Master tracker written to {args.tracker}")
     if not apply_changes:
         print("This was a DRY RUN — nothing on Drive changed. Re-run with --apply to execute this plan.")
 
