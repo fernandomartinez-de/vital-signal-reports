@@ -47,6 +47,7 @@ from googleapiclient.http import MediaIoBaseDownload
 import anthropic
 import pdfplumber
 from pdf2image import convert_from_bytes
+from PIL import Image
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill
 from openpyxl.utils import get_column_letter
@@ -54,7 +55,9 @@ from openpyxl.utils import get_column_letter
 # ── Config ────────────────────────────────────────────────────────────────────
 GDRIVE_FOLDER_ID = "1_pB5M_-xqWU-jNYykK83fhZiWc5ldrS2"  # Medical/
 SCOPES = ["https://www.googleapis.com/auth/drive"]  # needs write (Editor on the folder)
-MODEL = "claude-sonnet-4-20250514"
+MODEL = "claude-sonnet-5"  # claude-sonnet-4-20250514 has been retired — every call 404'd
+
+MAX_IMAGE_BYTES = 10 * 1024 * 1024  # Anthropic's vision API hard limit on base64-decoded image size
 
 # Ordered (not a set) so the tracker's tabs come out in a stable, sensible order.
 CATEGORIES_ORDERED = ["labs", "radiologia", "ultrasonidos", "inbody", "patologia"]
@@ -192,11 +195,33 @@ def extract_pdf_text(pdf_bytes):
         return ""
 
 
-def render_first_page_png(pdf_bytes):
+def _encode_jpeg_under_limit(pil_image, max_bytes=MAX_IMAGE_BYTES, start_quality=85):
+    """Encodes a PIL image as JPEG, stepping quality down and then dimensions
+    down, until it fits under max_bytes. A scanned page at 150 DPI can render
+    well over Anthropic's 10MB image limit — this is what a past run hit."""
+    img = pil_image.convert("RGB")
+    quality = start_quality
+    data = b""
+    for _ in range(12):
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=quality, optimize=True)
+        data = buf.getvalue()
+        if len(data) <= max_bytes:
+            return data
+        if quality > 40:
+            quality -= 15
+        else:
+            w, h = img.size
+            img = img.resize((max(1, w * 3 // 4), max(1, h * 3 // 4)))
+            quality = 70
+    return data  # best effort if still over after the loop cap (very unlikely)
+
+
+def render_first_page_image(pdf_bytes):
+    """Rasterizes page 1 of a PDF and returns JPEG bytes guaranteed under
+    Anthropic's 10MB vision limit."""
     images = convert_from_bytes(pdf_bytes, dpi=150, first_page=1, last_page=1)
-    buf = io.BytesIO()
-    images[0].save(buf, format="PNG")
-    return buf.getvalue()
+    return _encode_jpeg_under_limit(images[0])
 
 
 def classify_from_text(text, client):
@@ -209,12 +234,12 @@ def classify_from_text(text, client):
     return _parse_json_object(msg.content[0].text)
 
 
-def classify_from_image(png_bytes, client):
-    img_b64 = base64.standard_b64encode(png_bytes).decode("utf-8")
+def classify_from_image(image_bytes, media_type, client):
+    img_b64 = base64.standard_b64encode(image_bytes).decode("utf-8")
     msg = client.messages.create(
         model=MODEL, max_tokens=600,
         messages=[{"role": "user", "content": [
-            {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": img_b64}},
+            {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": img_b64}},
             {"type": "text", "text": CLASSIFY_INSTRUCTIONS},
         ]}],
     )
@@ -245,25 +270,25 @@ def classify_document(file_bytes, mime_type, client):
             except Exception as e:
                 return None, "text", str(e)
         try:
-            png_bytes = render_first_page_png(file_bytes)
+            image_bytes = render_first_page_image(file_bytes)
         except Exception as e:
             return None, "vision", f"pdf2image render failed: {e}"
         try:
-            return classify_from_image(png_bytes, client), "vision", None
+            return classify_from_image(image_bytes, "image/jpeg", client), "vision", None
         except Exception as e:
             return None, "vision", str(e)
     elif mime_type in ("image/jpeg", "image/png", "image/jpg"):
         media_type = "image/png" if mime_type == "image/png" else "image/jpeg"
+        image_bytes = file_bytes
+        if len(file_bytes) > MAX_IMAGE_BYTES:
+            # e.g. a big phone photo of an InBody screen — re-encode under the limit.
+            try:
+                image_bytes = _encode_jpeg_under_limit(Image.open(io.BytesIO(file_bytes)))
+                media_type = "image/jpeg"
+            except Exception as e:
+                return None, "vision", f"image too large and re-encode failed: {e}"
         try:
-            img_b64 = base64.standard_b64encode(file_bytes).decode("utf-8")
-            msg = client.messages.create(
-                model=MODEL, max_tokens=600,
-                messages=[{"role": "user", "content": [
-                    {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": img_b64}},
-                    {"type": "text", "text": CLASSIFY_INSTRUCTIONS},
-                ]}],
-            )
-            return _parse_json_object(msg.content[0].text), "vision", None
+            return classify_from_image(image_bytes, media_type, client), "vision", None
         except Exception as e:
             return None, "vision", str(e)
     else:
