@@ -530,9 +530,9 @@ def build_target_name(fecha, categoria, proveedor, tipo, ext):
 TRACKER_COLUMNS = [
     ("File Name", lambda r: r.get("new_name") or r.get("original_name")),
     ("Date", lambda r: r.get("resolved_date", "")),
+    ("Category", lambda r: r.get("categoria", "")),
     ("Provider", lambda r: r.get("proveedor", "")),
     ("Type", lambda r: r.get("tipo", "")),
-    ("Year", lambda r: r.get("target_year", "")),
     ("Current Path", lambda r: r.get("original_path", "")),
     ("Target Path", lambda r: r.get("new_path", "")),
     ("Status", lambda r: r.get("action", "")),
@@ -550,7 +550,7 @@ def _write_sheet(wb, title, records):
     for cell in ws[1]:
         cell.font = HEADER_FONT
         cell.fill = HEADER_FILL
-    for r in sorted(records, key=lambda r: (r.get("resolved_date") or "", r.get("original_path", ""))):
+    for r in sorted(records, key=lambda r: (r.get("resolved_date") or "", r.get("categoria") or "", r.get("original_path", ""))):
         ws.append([getter(r) for _, getter in TRACKER_COLUMNS])
     ws.freeze_panes = "A2"
     for i, (col_name, _) in enumerate(TRACKER_COLUMNS, start=1):
@@ -561,18 +561,24 @@ def _write_sheet(wb, title, records):
 
 def build_master_tracker(records, tracker_path, apply_changes):
     """(Re)writes the whole tracker workbook from this run's records — one tab per
-    category, a Resumen (summary) tab, and a _REVISAR tab for anything quarantined,
-    duplicate, errored, or ignored. Safe to call on a dry run: it only writes the
-    .xlsx file, never touches Drive."""
-    by_category = defaultdict(list)
+    year (matching the Drive folder layout: {year}/{category}/...), a Resumen
+    (summary) tab, and a _REVISAR tab for anything quarantined, duplicate, errored,
+    ignored, or otherwise missing a resolved year. Safe to call on a dry run: it
+    only writes the .xlsx file, never touches Drive."""
+    by_year = defaultdict(list)
+    by_category_count = defaultdict(int)  # informational only, summary tab
     revisar = []
     for r in records:
         action = r.get("action")
         categoria = r.get("categoria")
-        if action in ("quarantine", "duplicate", "error", "ignored") or not categoria or categoria not in CATEGORIES:
+        target_year = r.get("target_year")
+        if action in ("quarantine", "duplicate", "error", "ignored") or not categoria or categoria not in CATEGORIES or not target_year:
             revisar.append(r)
         else:
-            by_category[categoria].append(r)
+            by_year[target_year].append(r)
+            by_category_count[categoria] += 1
+
+    years_ordered = sorted(by_year.keys(), reverse=True)  # most recent year first
 
     wb = Workbook()
     wb.remove(wb.active)  # drop the default blank sheet
@@ -584,17 +590,23 @@ def build_master_tracker(records, tracker_path, apply_changes):
     summary.append(["Mode", "apply (changes executed)" if apply_changes else "dry run (plan only, nothing changed on Drive)"])
     summary.append(["Total files scanned", len(records)])
     summary.append([])
-    summary.append(["Category", "Files"])
+    summary.append(["Year", "Files"])
+    for cell in summary[summary.max_row]:
+        cell.font = Font(bold=True)
+    for year in years_ordered:
+        summary.append([year, len(by_year[year])])
+    summary.append(["_REVISAR (needs manual review)", len(revisar)])
+    summary.append([])
+    summary.append(["Category (all years)", "Files"])
     for cell in summary[summary.max_row]:
         cell.font = Font(bold=True)
     for cat in CATEGORIES_ORDERED:
-        summary.append([cat, len(by_category.get(cat, []))])
-    summary.append(["_REVISAR (needs manual review)", len(revisar)])
+        summary.append([cat, by_category_count.get(cat, 0)])
     for col, width in zip("AB", (34, 50)):
         summary.column_dimensions[col].width = width
 
-    for cat in CATEGORIES_ORDERED:
-        _write_sheet(wb, cat, by_category.get(cat, []))
+    for year in years_ordered:
+        _write_sheet(wb, year, by_year[year])
     _write_sheet(wb, REVISAR_FOLDER_NAME, revisar)
 
     os.makedirs(os.path.dirname(tracker_path) or ".", exist_ok=True)
