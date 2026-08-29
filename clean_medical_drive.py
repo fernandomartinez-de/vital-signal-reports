@@ -412,6 +412,20 @@ def both_date_interpretations(fecha_texto):
     return _try(a, b), _try(b, a)  # (as-D/M reading, as-M/D reading)
 
 
+def existing_filename_date(filename):
+    """If a filename already starts with this pipeline's own YYYY-MM-DD_
+    convention, return that date — used only as a tie-break for genuinely
+    ambiguous dates, and only when it matches one of the two calendar-valid
+    readings (see the "via_existing_name" tier in main())."""
+    m = re.match(r"^(\d{4})-(\d{2})-(\d{2})_", filename or "")
+    if not m:
+        return None
+    try:
+        return date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+    except ValueError:
+        return None
+
+
 def resolve_date(fecha_texto, order_hint=None):
     """Returns (date_or_None, reason_or_None, resolved_via_hint_bool).
 
@@ -640,6 +654,26 @@ def main():
         tipo = classification.get("tipo") or "otro"
         record["classification"] = classification
 
+        via_existing_name = False
+        if fecha is None and date_reason == "ambiguous_day_month":
+            # Last resort, only for files whose CURRENT name already follows this
+            # pipeline's own YYYY-MM-DD_... convention: if that existing date is
+            # one of the two calendar-valid readings of the ambiguous text (never
+            # both, never neither), treat it as confirmed. This only accepts a
+            # name that's independently consistent with the raw digits actually
+            # printed on the document — it doesn't trust an arbitrary filename,
+            # and a name that matches NEITHER reading is left alone (that's a
+            # real inconsistency worth a human's attention, not something to
+            # paper over). Enabled per your explicit call after reviewing the
+            # ambiguous cases: existing titles here are clear enough to trust
+            # when they check out against the document's own printed digits.
+            existing = existing_filename_date(f["name"])
+            as_dm, as_md = both_date_interpretations(classification.get("fecha_texto"))
+            if existing and existing.isoformat() == as_dm and as_dm != as_md:
+                fecha, via_existing_name = existing, "day-first"
+            elif existing and existing.isoformat() == as_md and as_dm != as_md:
+                fecha, via_existing_name = existing, "month-first"
+
         if fecha is None:
             reason = f"date: {date_reason}"
             if date_reason == "ambiguous_day_month":
@@ -647,6 +681,10 @@ def main():
                 if as_dm and as_md:
                     reason += (f" — as printed ({classification.get('fecha_texto')!r}) this is either "
                                f"{as_dm} (day-first) or {as_md} (month-first); open the file to see which")
+                    existing = existing_filename_date(f["name"])
+                    if existing and existing.isoformat() not in (as_dm, as_md):
+                        reason += (f" (note: current filename implies {existing.isoformat()}, which matches "
+                                   f"NEITHER reading — worth a closer look)")
             record.update(action="quarantine", reason=reason, new_path="", new_name="")
             records.append(record)
             continue
@@ -669,6 +707,11 @@ def main():
                 f"date order inferred from 2nd date on same document "
                 f"({classification.get('fecha_secundaria_texto')!r}, unambiguous as {order_hint}) "
                 f"— {classification.get('fecha_texto')!r} itself was ambiguous"
+            )
+        elif via_existing_name:
+            record["reason"] = (
+                f"date confirmed via existing filename ({f['name']!r}) — {classification.get('fecha_texto')!r} "
+                f"was ambiguous on its own, but the current name already matches the {via_existing_name} reading"
             )
         records.append(record)
 
