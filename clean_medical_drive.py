@@ -3,39 +3,56 @@ Medical Drive folder cleaner.
 
 Sweeps the whole Google Drive "Medical" tree, reads each PDF/image's actual
 content (text layer, or Claude vision for scanned docs), and works out the
-real collection date, category and provider — then plans a rename/move to
-bring the file in line with the naming convention:
+real collection date, category and provider — then renames the file IN
+PLACE (same folder it's already in) to match the naming convention:
 
-    Medical/{year}/{category}/YYYY-MM-DD_{category}_{provider}_{type}.ext
+    YYYY-MM-DD_{category}_{provider}_{type}.ext
 
 This exists because ingest_labs_gdrive.py trusts the filename blindly:
 parse_filename() silently falls back to date.today() on a bad date, and the
 ingest only picks up files with "_labs_" in the name. A messy filename is
 invisible to the ingest and/or gets stamped with the wrong date. Running
-this first keeps the folder — and the timeline — clean.
+this first keeps the filenames — and the timeline — clean.
+
+This script does NOT organize files into year/category folders. Folder
+placement is a human job (a family member sorts files into the right
+Medical/{year}/{category}/ folder); this script only fixes names and keeps
+the master tracker current so someone can check the next day that nothing
+got missed. As a courtesy, if a document's own content doesn't give a
+confident category, the file's CURRENT folder is trusted as a fallback
+signal for category (see step 2 below) — since a human is doing that
+placement now, it's real evidence, not a guess.
 
 Safety rules (do not relax these):
   - Never deletes anything. Ever.
   - Ambiguous dates (both day and month <= 12, so D/M vs M/D genuinely
-    can't be told apart from the text alone) are quarantined, not guessed.
-    A previous script guessed and got a month wrong — see rename_log
-    history / commit messages for the case this is guarding against.
-  - Anything read with low confidence, or that fails to read at all, is
-    quarantined rather than filed on a guess.
-  - Duplicates (identical content hash) are quarantined, keeping whichever
-    copy is already correctly named/placed (or the oldest, if neither is).
+    can't be told apart from the text alone) are never guessed — see the
+    "needs_attention" action below. A previous script guessed and got a
+    month wrong — see rename_log history / commit messages for the case
+    this is guarding against.
+  - A file whose date and/or category can't be confidently determined
+    (even after the folder-based category fallback) is left completely
+    untouched — no rename, no move — and flagged in the tracker's "Needs
+    Attention" sheet so a human can fix the name/placement by hand. It is
+    NOT quarantined into _REVISAR; that folder is reserved for duplicates
+    only (see below).
+  - Duplicates (identical content hash) ARE still quarantined into
+    Medical/_REVISAR, prefixed DUP_ — keeping whichever copy is already
+    correctly named (or the oldest, if neither is). This is the only case
+    that still moves a file.
   - Dry-run by default. Nothing changes on Drive unless --apply is passed.
     Every run (dry-run or apply) writes rename_log.csv describing what it
     did or would do.
   - Every run also (re)writes a master tracker workbook at tracker/master_tracker.xlsx
-    — one tab per category plus a Resumen tab and a _REVISAR tab — as a standing
-    inventory of everything in the Medical folder. This happens on dry runs too,
-    since building the tracker never touches Drive.
+    — one tab per year, a Resumen tab, and a "Needs Attention" tab covering
+    duplicates plus anything left unrenamed — as a standing inventory of
+    everything in the Medical folder. This happens on dry runs too, since
+    building the tracker never touches Drive.
 
 Auth: same service-account pattern as ingest_labs_gdrive.py, via the
 GDRIVE_CREDENTIALS secret. Unlike the ingest (readonly), this needs the
 service account to have Editor access on the Medical folder, because it
-renames and moves files.
+renames files and moves confirmed duplicates.
 """
 import os, io, sys, csv, re, json, base64, hashlib, argparse
 from datetime import date, datetime, timezone
@@ -506,7 +523,7 @@ def resolve_date(fecha_texto, order_hint=None):
         day, month = b, a
         via_hint = True
     else:
-        return None, "ambiguous_day_month", False  # no evidence either way — quarantine
+        return None, "ambiguous_day_month", False  # no evidence either way — leave the file unrenamed
     try:
         return date(y, month, day), None, via_hint
     except ValueError:
@@ -559,21 +576,25 @@ def _write_sheet(wb, title, records):
     return ws
 
 
+TRACKER_ATTENTION_SHEET = "Needs Attention"
+
+
 def build_master_tracker(records, tracker_path, apply_changes):
     """(Re)writes the whole tracker workbook from this run's records — one tab per
-    year (matching the Drive folder layout: {year}/{category}/...), a Resumen
-    (summary) tab, and a _REVISAR tab for anything quarantined, duplicate, errored,
-    ignored, or otherwise missing a resolved year. Safe to call on a dry run: it
-    only writes the .xlsx file, never touches Drive."""
+    year (by resolved document date, independent of whatever Drive folder the file
+    actually sits in — this script no longer moves files), a Resumen (summary) tab,
+    and a "Needs Attention" tab covering duplicates plus anything left unrenamed
+    (no confident date and/or category, even after the folder-fallback check).
+    Safe to call on a dry run: it only writes the .xlsx file, never touches Drive."""
     by_year = defaultdict(list)
     by_category_count = defaultdict(int)  # informational only, summary tab
-    revisar = []
+    needs_attention = []
     for r in records:
         action = r.get("action")
         categoria = r.get("categoria")
         target_year = r.get("target_year")
-        if action in ("quarantine", "duplicate", "error", "ignored") or not categoria or categoria not in CATEGORIES or not target_year:
-            revisar.append(r)
+        if action in ("needs_attention", "duplicate", "error", "ignored") or not categoria or categoria not in CATEGORIES or not target_year:
+            needs_attention.append(r)
         else:
             by_year[target_year].append(r)
             by_category_count[categoria] += 1
@@ -595,7 +616,13 @@ def build_master_tracker(records, tracker_path, apply_changes):
         cell.font = Font(bold=True)
     for year in years_ordered:
         summary.append([year, len(by_year[year])])
-    summary.append(["_REVISAR (needs manual review)", len(revisar)])
+    summary.append([f"{TRACKER_ATTENTION_SHEET} (duplicates + unrenamed files)", len(needs_attention)])
+    summary.append([])
+    summary.append(["Note", "This script only renames files — it doesn't move them into "
+                             "year/category folders anymore. Duplicates still get moved into "
+                             "Medical/_REVISAR (prefixed DUP_); everything else on the "
+                             f"'{TRACKER_ATTENTION_SHEET}' sheet is left exactly where it is — "
+                             "fix the name/folder by hand and it'll pick up cleanly next run."])
     summary.append([])
     summary.append(["Category (all years)", "Files"])
     for cell in summary[summary.max_row]:
@@ -607,7 +634,7 @@ def build_master_tracker(records, tracker_path, apply_changes):
 
     for year in years_ordered:
         _write_sheet(wb, year, by_year[year])
-    _write_sheet(wb, REVISAR_FOLDER_NAME, revisar)
+    _write_sheet(wb, TRACKER_ATTENTION_SHEET, needs_attention)
 
     os.makedirs(os.path.dirname(tracker_path) or ".", exist_ok=True)
     wb.save(tracker_path)
@@ -668,23 +695,16 @@ def _scan_and_plan(service, client, args, apply_changes, records):
     else:
         revisar_id = f"PLANNED:{GDRIVE_FOLDER_ID}:{REVISAR_FOLDER_NAME}"
 
-    # Seed folder_cache with the real year/category folders we already saw.
-    for f in top_children:
-        if f["mimeType"] == "application/vnd.google-apps.folder" and f["name"] != REVISAR_FOLDER_NAME:
-            folder_cache[(GDRIVE_FOLDER_ID, f["name"])] = f["id"]
-            for sub in list_children(service, f["id"]):
-                if sub["mimeType"] == "application/vnd.google-apps.folder":
-                    folder_cache[(f["id"], sub["name"])] = sub["id"]
-
     # 2. Walk the tree and classify every file.
     scan_root = GDRIVE_FOLDER_ID
     scan_path_prefix = []
     if args.year:
-        year_folder = folder_cache.get((GDRIVE_FOLDER_ID, args.year))
-        if not year_folder or str(year_folder).startswith("PLANNED:"):
+        year_folder = next((f for f in top_children if f["name"] == args.year
+                             and f["mimeType"] == "application/vnd.google-apps.folder"), None)
+        if not year_folder:
             print(f"Year folder '{args.year}' not found under Medical/ — nothing to do.")
             return False
-        scan_root, scan_path_prefix = year_folder, [args.year]
+        scan_root, scan_path_prefix = year_folder["id"], [args.year]
 
     print("Scanning Medical/ tree...")
     consecutive_classify_failures = 0
@@ -714,8 +734,8 @@ def _scan_and_plan(service, client, args, apply_changes, records):
         }
 
         if err or not classification:
-            record.update(action="quarantine", reason=f"extraction failed ({method}): {err}",
-                           new_path="", new_name="")
+            record.update(action="needs_attention", reason=f"extraction failed ({method}): {err}",
+                           new_path=current_path, new_name=f["name"])
             records.append(record)
             if looks_systemic(err):
                 raise RuntimeError(
@@ -740,6 +760,26 @@ def _scan_and_plan(service, client, args, apply_changes, records):
         proveedor = classification.get("proveedor") or "otro"
         tipo = classification.get("tipo") or "otro"
         record["classification"] = classification
+
+        # Category fallback: if the document's own content didn't give a
+        # confident category, trust the folder the file is CURRENTLY sitting
+        # in, when that folder is one of the known categories. This is real
+        # evidence, not a guess — a person is placing files into the right
+        # category folder, so a file sitting in .../labs/... almost certainly
+        # is a lab result even if the page itself was hard to read.
+        category_note = None
+        if not categoria or categoria not in CATEGORIES or categoria_confianza != "alta":
+            folder_categoria = None
+            if len(path_parts) >= 2 and path_parts[1] in CATEGORIES:
+                folder_categoria = path_parts[1]
+            elif len(path_parts) >= 1 and path_parts[0] in CATEGORIES:
+                folder_categoria = path_parts[0]
+            if folder_categoria:
+                categoria, categoria_confianza = folder_categoria, "alta"
+                category_note = (f"category taken from its current folder "
+                                  f"('{'/'.join(path_parts)}') since the document content "
+                                  f"itself was unclear/low-confidence")
+        record["categoria"], record["proveedor"], record["tipo"] = categoria, proveedor, tipo
 
         via_existing_name = False
         if fecha is None and date_reason == "ambiguous_day_month":
@@ -767,11 +807,12 @@ def _scan_and_plan(service, client, args, apply_changes, records):
             # printed blank on the form) — this isn't an ambiguity to resolve,
             # there's simply nothing there. If a second, different-purpose date
             # exists on the same page (report/creation/release date), fall back
-            # to that rather than quarantining: it's the only real date on the
-            # page, not a guess between two readings. Still goes through the
-            # same unambiguous-or-nothing resolution (including the existing
-            # filename tiebreak) as any other date — and if THAT date is itself
-            # ambiguous with no way to break the tie, this still quarantines.
+            # to that rather than leaving the file unrenamed: it's the only real
+            # date on the page, not a guess between two readings. Still goes
+            # through the same unambiguous-or-nothing resolution (including the
+            # existing filename tiebreak) as any other date — and if THAT date
+            # is itself ambiguous with no way to break the tie, this still
+            # leaves the file exactly as it is.
             # Enabled per your explicit call; always labeled clearly below as a
             # report date, not a confirmed collection date, so it's never
             # mistaken for one in the tracker.
@@ -790,6 +831,7 @@ def _scan_and_plan(service, client, args, apply_changes, records):
                     fecha, via_report_date = sec_fecha, True
                     via_existing_name = sec_via_existing or via_existing_name
 
+        problems = []
         if fecha is None:
             reason = f"date: {date_reason}"
             if date_reason == "ambiguous_day_month":
@@ -801,13 +843,23 @@ def _scan_and_plan(service, client, args, apply_changes, records):
                     if existing and existing.isoformat() not in (as_dm, as_md):
                         reason += (f" (note: current filename implies {existing.isoformat()}, which matches "
                                    f"NEITHER reading — worth a closer look)")
-            record.update(action="quarantine", reason=reason, new_path="", new_name="")
-            records.append(record)
-            continue
-        if not categoria or categoria not in CATEGORIES or categoria_confianza != "alta":
-            record.update(action="quarantine",
-                           reason=f"category not confident (categoria={categoria!r}, confianza={categoria_confianza!r})",
-                           new_path="", new_name="")
+            problems.append(reason)
+        if not categoria or categoria not in CATEGORIES:
+            problems.append(f"category not confident (categoria={classification.get('categoria')!r}, "
+                             f"confianza={categoria_confianza!r}) even after checking its current folder")
+
+        if problems:
+            # Can't build a trustworthy target_name without both a resolved date
+            # AND a confident category — leave the file exactly as it is (no
+            # rename, no move) rather than guess. This is NOT sent to _REVISAR
+            # (that folder is duplicates-only now) — it just shows up on the
+            # tracker's "Needs Attention" sheet so a human can fix the name or
+            # move it to the right category folder by hand.
+            reason = "; ".join(problems)
+            if category_note and not any("category" in p for p in problems):
+                reason += f" (note: {category_note})"
+            record.update(action="needs_attention", reason=reason,
+                           new_path=current_path, new_name=f["name"])
             records.append(record)
             continue
 
@@ -818,49 +870,51 @@ def _scan_and_plan(service, client, args, apply_changes, records):
             resolved_date=fecha.isoformat(), categoria=categoria, proveedor=proveedor, tipo=tipo,
             target_year=target_year, target_name=target_name,
         )
+        reason_bits = []
         if via_report_date:
-            record["reason"] = (
+            bit = (
                 f"NO COLLECTION DATE ON DOCUMENT — using report/creation date instead "
                 f"({classification.get('fecha_secundaria_label') or 'fecha_secundaria'}: "
                 f"{classification.get('fecha_secundaria_texto')!r}). This is the report date, "
                 f"not a confirmed sample-collection date."
             )
             if via_existing_name:
-                record["reason"] += (
+                bit += (
                     f" That report date was itself ambiguous on its own, but the current filename "
                     f"({f['name']!r}) already matches the {via_existing_name} reading."
                 )
+            reason_bits.append(bit)
         elif via_hint:
-            record["reason"] = (
+            reason_bits.append(
                 f"date order inferred from 2nd date on same document "
                 f"({classification.get('fecha_secundaria_texto')!r}, unambiguous as {order_hint}) "
                 f"— {classification.get('fecha_texto')!r} itself was ambiguous"
             )
         elif via_existing_name:
-            record["reason"] = (
+            reason_bits.append(
                 f"date confirmed via existing filename ({f['name']!r}) — {classification.get('fecha_texto')!r} "
                 f"was ambiguous on its own, but the current name already matches the {via_existing_name} reading"
             )
+        if category_note:
+            reason_bits.append(category_note)
+        if reason_bits:
+            record["reason"] = " | ".join(reason_bits)
         records.append(record)
 
-    # 3. Duplicate detection across the whole scanned set.
+    # 3. Duplicate detection across the whole scanned set. This is the ONLY
+    # case that still moves a file into Medical/_REVISAR.
     by_hash = defaultdict(list)
     for r in records:
-        if r.get("action") in ("quarantine", "ignored"):
+        if r.get("action") in ("needs_attention", "ignored"):
             continue
         by_hash[r["content_hash"]].append(r)
 
     for group in by_hash.values():
         if len(group) < 2:
             continue
-        # Prefer whichever copy is already exactly correctly named+placed; else oldest.
+        # Prefer whichever copy is already exactly correctly named; else oldest.
         def already_correct(r):
-            parts = r["original_path"].split("/")
-            if len(parts) < 3:
-                return False
-            return (r["original_name"] == r["target_name"]
-                    and parts[0] == r["target_year"]
-                    and parts[1] == r["categoria"])
+            return r["original_name"] == r["target_name"]
         keeper = next((r for r in group if already_correct(r)), None)
         if keeper is None:
             keeper = min(group, key=lambda r: r.get("created_time", ""))
@@ -870,45 +924,36 @@ def _scan_and_plan(service, client, args, apply_changes, records):
             r["action"] = "duplicate"
             r["reason"] = f"duplicate of {keeper['original_path']} (identical content hash)"
 
-    # 4. Decide final action for everything not already quarantined/duplicate/ignored.
+    # 4. Decide final action for everything not already needs_attention/duplicate.
+    # No more "move" — a file with a confidently resolved date+category just
+    # gets renamed right where it already sits.
     for r in records:
         if "action" in r:
             continue
-        current_year = r["original_path"].split("/")[0] if "/" in r["original_path"] else ""
-        current_category = r["original_path"].split("/")[1] if r["original_path"].count("/") >= 2 else ""
-        if r["original_name"] == r["target_name"] and current_year == r["target_year"] and current_category == r["categoria"]:
-            r["action"] = "no_change"
-        elif current_year == r["target_year"] and current_category == r["categoria"]:
-            r["action"] = "rename"
-        else:
-            r["action"] = "move"
+        r["action"] = "no_change" if r["original_name"] == r["target_name"] else "rename"
 
     # 5. Apply (or just log) the plan.
     print("\nApplying plan..." if apply_changes else "\nPlan (dry run — nothing will change):")
     for r in records:
-        action = r.get("action", "quarantine")
+        action = r.get("action", "needs_attention")
         if action == "no_change":
             r["new_path"], r["new_name"] = r["original_path"], r["original_name"]
-        elif action in ("rename", "move"):
-            r["new_path"] = f"{r['target_year']}/{r['categoria']}/{r['target_name']}"
+        elif action == "rename":
+            parts = r["original_path"].split("/")
+            parts[-1] = r["target_name"]
+            r["new_path"] = "/".join(parts)
             r["new_name"] = r["target_name"]
-            try:
-                dest_folder_id = get_or_create_folder(
-                    service,
-                    get_or_create_folder(service, GDRIVE_FOLDER_ID, r["target_year"], folder_cache, apply_changes),
-                    r["categoria"], folder_cache, apply_changes,
-                )
-                if apply_changes:
-                    move_file(service, r["file_id"], r["parent_id"], dest_folder_id, r["target_name"])
-            except Exception as e:
-                # Never let one file's Drive error (permissions, a rate limit, a
-                # transient API hiccup) take down the whole run — every other
-                # file's already-computed plan is real work we don't want to lose.
-                r["action"] = "error"
-                r["reason"] = f"Drive update failed: {e}"
-        elif action in ("quarantine", "duplicate"):
-            prefix = "DUP_" if action == "duplicate" else "REVISAR_"
-            new_name = r["original_name"] if r["original_name"].startswith(prefix) else prefix + r["original_name"]
+            if apply_changes:
+                try:
+                    move_file(service, r["file_id"], r["parent_id"], None, r["target_name"])  # rename only, same folder
+                except Exception as e:
+                    # Never let one file's Drive error (permissions, a rate limit, a
+                    # transient API hiccup) take down the whole run — every other
+                    # file's already-computed plan is real work we don't want to lose.
+                    r["action"] = "error"
+                    r["reason"] = f"Drive update failed: {e}"
+        elif action == "duplicate":
+            new_name = r["original_name"] if r["original_name"].startswith("DUP_") else "DUP_" + r["original_name"]
             r["new_path"] = f"{REVISAR_FOLDER_NAME}/{new_name}"
             r["new_name"] = new_name
             if apply_changes:
@@ -917,6 +962,8 @@ def _scan_and_plan(service, client, args, apply_changes, records):
                 except Exception as e:
                     r["action"] = "error"
                     r["reason"] = f"Drive update failed: {e}"
+        elif action == "needs_attention":
+            r["new_path"], r["new_name"] = r["original_path"], r["original_name"]  # left untouched, on purpose
         print(f"  [{r.get('action')}] {r['original_path']} -> {r.get('new_path', '(unchanged)')}"
               + (f"  ({r['reason']})" if r.get("reason") else ""))
 
@@ -925,7 +972,7 @@ def _scan_and_plan(service, client, args, apply_changes, records):
 
 def main():
     ap = argparse.ArgumentParser(description="Clean up the Medical Google Drive folder.")
-    ap.add_argument("--apply", action="store_true", help="Actually rename/move/quarantine on Drive. Default is dry-run.")
+    ap.add_argument("--apply", action="store_true", help="Actually rename files (and move confirmed duplicates to _REVISAR) on Drive. Default is dry-run.")
     ap.add_argument("--year", default=None, help="Only sweep this year subfolder (e.g. 2024). Default: whole tree.")
     ap.add_argument("--log", default="rename_log.csv", help="Path to write the CSV log to.")
     ap.add_argument("--tracker", default=DEFAULT_TRACKER_PATH, help="Path to write the master tracker .xlsx to.")
@@ -973,7 +1020,7 @@ def main():
         # "applied" reflects whether Drive was actually touched — not just
         # whether --apply was passed. On a fatal-error abort (below), the
         # scan stops before step 5 ever runs a single Drive write, so nothing
-        # in `records` was actually applied, however "quarantine"/"rename" it
+        # in `records` was actually applied, however "rename"/"duplicate" it
         # may be labeled — the CSV should say so honestly.
         actually_applied = apply_changes and fatal_error is None
         for r in records:
@@ -1009,7 +1056,7 @@ def main():
 
     counts = defaultdict(int)
     for r in records:
-        counts[r.get("action", "quarantine")] += 1
+        counts[r.get("action", "needs_attention")] += 1
     print(f"\n{'='*50}")
     print(f"DONE — {len(records)} files scanned. " + ", ".join(f"{k}={v}" for k, v in sorted(counts.items())))
     print(f"Log written to {args.log}")
@@ -1025,13 +1072,15 @@ def main():
         raise fatal_error
 
 
-def _error_record(f, path_parts, parent_id, reason, content_hash="", action="quarantine"):
+def _error_record(f, path_parts, parent_id, reason, content_hash="", action="needs_attention"):
+    original_path = "/".join(path_parts + [f["name"]])
     return {
         "file_id": f["id"], "parent_id": parent_id,
-        "original_path": "/".join(path_parts + [f["name"]]), "original_name": f["name"],
+        "original_path": original_path, "original_name": f["name"],
         "created_time": f.get("createdTime", ""), "content_hash": content_hash,
         "extraction_method": "", "mime_type": f.get("mimeType", ""),
-        "action": action, "reason": reason, "new_path": "", "new_name": "",
+        "action": action, "reason": reason,
+        "new_path": original_path, "new_name": f["name"],  # left untouched
     }
 
 
