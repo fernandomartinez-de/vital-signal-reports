@@ -234,11 +234,16 @@ def _extract_text(msg):
     raise ValueError("no text content block in model response")
 
 
+CLASSIFY_MAX_TOKENS = 1024  # 600 was too tight — several vision replies got cut off
+                             # mid-JSON ("Unterminated string...") and a couple had
+                             # nothing left over for a text block at all.
+
+
 def classify_from_text(text, client):
     if len(text) > 15000:
         text = text[:15000]
     msg = client.messages.create(
-        model=MODEL, max_tokens=600,
+        model=MODEL, max_tokens=CLASSIFY_MAX_TOKENS,
         messages=[{"role": "user", "content": CLASSIFY_INSTRUCTIONS + "\n\nDocument text:\n" + text}],
     )
     return _parse_json_object(_extract_text(msg))
@@ -247,7 +252,7 @@ def classify_from_text(text, client):
 def classify_from_image(image_bytes, media_type, client):
     img_b64 = base64.standard_b64encode(image_bytes).decode("utf-8")
     msg = client.messages.create(
-        model=MODEL, max_tokens=600,
+        model=MODEL, max_tokens=CLASSIFY_MAX_TOKENS,
         messages=[{"role": "user", "content": [
             {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": img_b64}},
             {"type": "text", "text": CLASSIFY_INSTRUCTIONS},
@@ -306,16 +311,75 @@ def classify_document(file_bytes, mime_type, client):
 
 
 # ── Date ambiguity resolution (deterministic — never left to the model) ──────
-DATE_TOKEN_RE = re.compile(r"(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{4})")
+# Real fecha_texto values seen in the wild (from rename_log.csv's diagnostic
+# columns) that the original all-numeric regex couldn't handle at all:
+#   "15 de julio del 2023"   "21 DE AGOSTO DE 2019"   "29-ABRIL-2019"
+#   "24-DIC-18"              "2025-08-11"             "09-01-19"
+# The first four are Spanish month names (always unambiguous — the month is
+# spelled out) and ISO YYYY-MM-DD (always unambiguous — year leads, then
+# month, per the standard). Neither of those is a guess; both are handled
+# below before we ever fall through to the genuinely ambiguous numeric case.
+
+SPANISH_MONTHS = {
+    "enero": 1, "ene": 1,
+    "febrero": 2, "feb": 2,
+    "marzo": 3, "mar": 3,
+    "abril": 4, "abr": 4,
+    "mayo": 5, "may": 5,
+    "junio": 6, "jun": 6,
+    "julio": 7, "jul": 7,
+    "agosto": 8, "ago": 8,
+    "septiembre": 9, "setiembre": 9, "sept": 9, "sep": 9,
+    "octubre": 10, "oct": 10,
+    "noviembre": 11, "nov": 11,
+    "diciembre": 12, "dic": 12,
+}
+_MONTH_ALTERNATION = "|".join(sorted(SPANISH_MONTHS.keys(), key=len, reverse=True))
+SPANISH_DATE_RE = re.compile(
+    r"(\d{1,2})\s*(?:del|de|-)?\s*(" + _MONTH_ALTERNATION + r")\.?\s*(?:del|de|-)?\s*(\d{2,4})",
+    re.IGNORECASE,
+)
+
+# Year-first, unambiguous by ISO 8601 convention (year always leads, then month, then day).
+ISO_DATE_RE = re.compile(r"(\d{4})[/\-.](\d{1,2})[/\-.](\d{1,2})")
+
+# Day-or-month first, numeric only. Genuinely ambiguous unless one of the two
+# leading numbers is >12. Now also accepts 2-digit years (e.g. "09-01-19").
+DATE_TOKEN_RE = re.compile(r"(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{2,4})")
+
+
+def _expand_year(y):
+    """2-digit years in this archive are all recent (2000s) — never 1900s."""
+    return 2000 + y if y < 100 else y
+
 
 def resolve_date(fecha_texto):
     """Returns (date_or_None, reason_or_None). Never guesses an ambiguous date."""
     if not fecha_texto:
         return None, "no_date_found"
+
+    m = SPANISH_DATE_RE.search(fecha_texto)
+    if m:
+        day = int(m.group(1))
+        month = SPANISH_MONTHS[m.group(2).lower()]
+        year = _expand_year(int(m.group(3)))
+        try:
+            return date(year, month, day), None
+        except ValueError:
+            return None, "invalid_calendar_date"
+
+    m = ISO_DATE_RE.search(fecha_texto)
+    if m:
+        year, month, day = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        try:
+            return date(year, month, day), None
+        except ValueError:
+            return None, "invalid_calendar_date"
+
     m = DATE_TOKEN_RE.search(fecha_texto)
     if not m:
         return None, "unparseable_date_text"
-    a, b, y = int(m.group(1)), int(m.group(2)), int(m.group(3))
+    a, b, y = int(m.group(1)), int(m.group(2)), _expand_year(int(m.group(3)))
     if a > 12 and b > 12:
         return None, "invalid_date_numbers"
     if a > 12 and b <= 12:
