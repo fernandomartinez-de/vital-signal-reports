@@ -86,7 +86,7 @@ markdown, no explanation:
   "categoria": one of "labs", "radiologia", "ultrasonidos", "inbody", "patologia", or null if you cannot tell confidently,
   "categoria_confianza": "alta" or "baja",
   "proveedor": a short kebab-case slug for the lab/clinic/hospital that issued the document (use "quest-mx" for Quest Diagnostics Mexico, "quest-usa" for Quest Diagnostics USA, "labcorp" for LabCorp, "hospital-angeles-lomas" for Hospital Angeles Lomas; otherwise invent a short kebab-case slug from the letterhead, e.g. "clinica-san-jose"), or null if you truly cannot tell,
-  "tipo": a short kebab-case slug (1-3 words) for what this document is, e.g. "tiroideo", "biometria", "general", "tiroglobulina", "perfil-lipidico", "ultrasonido-tiroides", "biopsia-tiroides", "torax", "otro",
+  "tipo": a short kebab-case slug (1-3 words) for what this document is, e.g. "tiroideo", "biometria", "general", "tiroglobulina", "perfil-lipidico", "ultrasonido-tiroides", "biopsia-tiroides", "torax", "pet", "rastreo-yodo", "otro",
   "notas": "anything odd worth a human's attention, or empty string"
 }}
 
@@ -98,6 +98,11 @@ Rules for fecha_texto specifically:
   that decision is made deliberately outside this step, by a human-reviewed
   rule, because a past automated guess got the month wrong.
 - If no such date is findable, set fecha_encontrada to false and fecha_texto to null.
+
+PET scans and radioactive-iodine studies ("rastreo de yodo", "gammagrama",
+whole-body iodine scans) are nuclear-medicine imaging — classify these as
+categoria "radiologia" with tipo "pet" or "rastreo-yodo" (not a separate
+category).
 
 Be conservative: if you are not confident about categoria or the document is
 illegible/ambiguous, say so via categoria_confianza "baja" rather than guessing.
