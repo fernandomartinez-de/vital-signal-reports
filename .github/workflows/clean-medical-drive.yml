@@ -7,10 +7,11 @@ on:
         description: 'Actually rename/move files on Drive (unchecked = dry run only)'
         type: boolean
         default: false
-  # Uncomment to run automatically before the nightly ingest once you've
-  # reviewed a few dry-run logs and are comfortable with it:
-  # schedule:
-  #   - cron: '0 7 * * *'
+  # Runs automatically (dry run only -- apply always requires a manual,
+  # explicit run) before the nightly ingest so the tracker and rename log
+  # stay fresh even if nobody triggers it by hand:
+  schedule:
+    - cron: '0 7 * * *'
 
 permissions:
   contents: write
