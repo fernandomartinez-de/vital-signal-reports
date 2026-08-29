@@ -83,6 +83,8 @@ markdown, no explanation:
   "fecha_encontrada": true or false,
   "fecha_texto": "the date exactly as printed, digits and separators only, e.g. '17/04/2026' — do NOT reorder or reformat it, do NOT guess which number is the day vs month",
   "fecha_label": "which label it was next to, e.g. 'Fecha Toma Muestra'",
+  "fecha_secundaria_texto": "any OTHER date printed anywhere else on the same document — report date, print date, review date, validation date, whatever else appears — exactly as printed, same no-reorder rule as above. null if there truly isn't a second date anywhere on the page.",
+  "fecha_secundaria_label": "which label that second date was next to, e.g. 'Fecha de Reporte'",
   "categoria": one of "labs", "radiologia", "ultrasonidos", "inbody", "patologia", or null if you cannot tell confidently,
   "categoria_confianza": "alta" or "baja",
   "proveedor": a short kebab-case slug for the lab/clinic/hospital that issued the document (use "quest-mx" for Quest Diagnostics Mexico, "quest-usa" for Quest Diagnostics USA, "labcorp" for LabCorp, "hospital-angeles-lomas" for Hospital Angeles Lomas; otherwise invent a short kebab-case slug from the letterhead, e.g. "clinica-san-jose"), or null if you truly cannot tell,
@@ -98,6 +100,10 @@ Rules for fecha_texto specifically:
   that decision is made deliberately outside this step, by a human-reviewed
   rule, because a past automated guess got the month wrong.
 - If no such date is findable, set fecha_encontrada to false and fecha_texto to null.
+- Also look for a SECOND, different date printed anywhere else on the page (a
+  report/print/release date is fine here — this one is NOT used to name the
+  file, it's only used to double-check which number is the day and which is
+  the month when fecha_texto's own order is unclear). Same copy-exactly rule.
 
 PET scans and radioactive-iodine studies ("rastreo de yodo", "gammagrama",
 whole-body iodine scans) are nuclear-medicine imaging — classify these as
@@ -359,10 +365,63 @@ def _expand_year(y):
     return 2000 + y if y < 100 else y
 
 
-def resolve_date(fecha_texto):
-    """Returns (date_or_None, reason_or_None). Never guesses an ambiguous date."""
+def numeric_order_hint(text):
+    """Given a raw date string, return 'DM' or 'MD' if its own two leading
+    numbers unambiguously reveal which order this document's software prints
+    dates in (one of them is >12) — else None (itself ambiguous, non-numeric,
+    unparseable, or missing). Used only to read a genuine same-document signal
+    (e.g. a report date printed alongside an ambiguous collection date), never
+    to invent one — a Spanish-named month or an ISO year-first date carries no
+    order information to transfer, so those return None here too."""
+    if not text:
+        return None
+    # Bail out on Spanish-named-month or ISO year-first dates first — neither
+    # carries D/M-order information, and matching DATE_TOKEN_RE against a
+    # substring of either (e.g. the "08-11" tail of an ISO "2025-08-11") would
+    # produce a false hint.
+    if SPANISH_DATE_RE.search(text) or ISO_DATE_RE.search(text):
+        return None
+    m = DATE_TOKEN_RE.search(text)
+    if not m:
+        return None
+    a, b = int(m.group(1)), int(m.group(2))
+    if a > 12 and b <= 12:
+        return "DM"
+    if b > 12 and a <= 12:
+        return "MD"
+    return None
+
+
+def both_date_interpretations(fecha_texto):
+    """For a genuinely ambiguous numeric date, return both calendar-valid
+    readings as ISO strings, (day-first, month-first) — e.g. '4/12/2019' ->
+    ('2019-12-04', '2019-04-12') — purely so a human reviewing _REVISAR can
+    see both options at a glance instead of re-deriving them by hand. Never
+    used to pick one automatically."""
+    m = DATE_TOKEN_RE.search(fecha_texto or "")
+    if not m:
+        return None, None
+    a, b, y = int(m.group(1)), int(m.group(2)), _expand_year(int(m.group(3)))
+
+    def _try(day, month):
+        try:
+            return date(y, month, day).isoformat()
+        except ValueError:
+            return None
+
+    return _try(a, b), _try(b, a)  # (as-D/M reading, as-M/D reading)
+
+
+def resolve_date(fecha_texto, order_hint=None):
+    """Returns (date_or_None, reason_or_None, resolved_via_hint_bool).
+
+    Never guesses an ambiguous date on its own. order_hint ('DM' or 'MD') may
+    be supplied from numeric_order_hint() run against a SECOND, unambiguous
+    date found elsewhere on the same document — real evidence about how that
+    specific document's software orders dates, not a guess. It is only used
+    as a last resort, when fecha_texto's own digits are genuinely ambiguous."""
     if not fecha_texto:
-        return None, "no_date_found"
+        return None, "no_date_found", False
 
     m = SPANISH_DATE_RE.search(fecha_texto)
     if m:
@@ -370,34 +429,41 @@ def resolve_date(fecha_texto):
         month = SPANISH_MONTHS[m.group(2).lower()]
         year = _expand_year(int(m.group(3)))
         try:
-            return date(year, month, day), None
+            return date(year, month, day), None, False
         except ValueError:
-            return None, "invalid_calendar_date"
+            return None, "invalid_calendar_date", False
 
     m = ISO_DATE_RE.search(fecha_texto)
     if m:
         year, month, day = int(m.group(1)), int(m.group(2)), int(m.group(3))
         try:
-            return date(year, month, day), None
+            return date(year, month, day), None, False
         except ValueError:
-            return None, "invalid_calendar_date"
+            return None, "invalid_calendar_date", False
 
     m = DATE_TOKEN_RE.search(fecha_texto)
     if not m:
-        return None, "unparseable_date_text"
+        return None, "unparseable_date_text", False
     a, b, y = int(m.group(1)), int(m.group(2)), _expand_year(int(m.group(3)))
+    via_hint = False
     if a > 12 and b > 12:
-        return None, "invalid_date_numbers"
+        return None, "invalid_date_numbers", False
     if a > 12 and b <= 12:
         day, month = a, b          # unambiguous D/M
     elif b > 12 and a <= 12:
         day, month = b, a          # unambiguous M/D
+    elif order_hint == "DM":
+        day, month = a, b          # both <=12 — resolved from a 2nd date on the same doc
+        via_hint = True
+    elif order_hint == "MD":
+        day, month = b, a
+        via_hint = True
     else:
-        return None, "ambiguous_day_month"  # both <=12 — cannot tell D/M from M/D
+        return None, "ambiguous_day_month", False  # no evidence either way — quarantine
     try:
-        return date(y, month, day), None
+        return date(y, month, day), None, via_hint
     except ValueError:
-        return None, "invalid_calendar_date"
+        return None, "invalid_calendar_date", False
 
 
 # ── Filename / slug helpers ───────────────────────────────────────────────────
@@ -566,7 +632,8 @@ def main():
             records.append(record)
             continue
 
-        fecha, date_reason = resolve_date(classification.get("fecha_texto"))
+        order_hint = numeric_order_hint(classification.get("fecha_secundaria_texto"))
+        fecha, date_reason, via_hint = resolve_date(classification.get("fecha_texto"), order_hint)
         categoria = classification.get("categoria")
         categoria_confianza = classification.get("categoria_confianza", "baja")
         proveedor = classification.get("proveedor") or "otro"
@@ -574,7 +641,13 @@ def main():
         record["classification"] = classification
 
         if fecha is None:
-            record.update(action="quarantine", reason=f"date: {date_reason}", new_path="", new_name="")
+            reason = f"date: {date_reason}"
+            if date_reason == "ambiguous_day_month":
+                as_dm, as_md = both_date_interpretations(classification.get("fecha_texto"))
+                if as_dm and as_md:
+                    reason += (f" — as printed ({classification.get('fecha_texto')!r}) this is either "
+                               f"{as_dm} (day-first) or {as_md} (month-first); open the file to see which")
+            record.update(action="quarantine", reason=reason, new_path="", new_name="")
             records.append(record)
             continue
         if not categoria or categoria not in CATEGORIES or categoria_confianza != "alta":
@@ -591,6 +664,12 @@ def main():
             resolved_date=fecha.isoformat(), categoria=categoria, proveedor=proveedor, tipo=tipo,
             target_year=target_year, target_name=target_name,
         )
+        if via_hint:
+            record["reason"] = (
+                f"date order inferred from 2nd date on same document "
+                f"({classification.get('fecha_secundaria_texto')!r}, unambiguous as {order_hint}) "
+                f"— {classification.get('fecha_texto')!r} itself was ambiguous"
+            )
         records.append(record)
 
     # 3. Duplicate detection across the whole scanned set.
@@ -675,7 +754,8 @@ def main():
     fieldnames = ["action", "original_path", "original_name", "new_path", "new_name",
                   "resolved_date", "categoria", "proveedor", "tipo",
                   "extraction_method", "content_hash", "reason", "file_id", "applied",
-                  "fecha_texto", "fecha_label", "categoria_confianza", "notas"]
+                  "fecha_texto", "fecha_label", "fecha_secundaria_texto", "fecha_secundaria_label",
+                  "categoria_confianza", "notas"]
     with open(args.log, "w", newline="", encoding="utf-8") as fh:
         w = csv.DictWriter(fh, fieldnames=fieldnames, extrasaction="ignore")
         w.writeheader()
@@ -685,6 +765,8 @@ def main():
             classification = r.get("classification") or {}
             row["fecha_texto"] = classification.get("fecha_texto", "")
             row["fecha_label"] = classification.get("fecha_label", "")
+            row["fecha_secundaria_texto"] = classification.get("fecha_secundaria_texto", "")
+            row["fecha_secundaria_label"] = classification.get("fecha_secundaria_label", "")
             row["categoria_confianza"] = classification.get("categoria_confianza", "")
             row["notas"] = classification.get("notas", "")
             w.writerow(row)
