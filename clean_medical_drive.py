@@ -370,8 +370,10 @@ SPANISH_MONTHS = {
     "diciembre": 12, "dic": 12,
 }
 _MONTH_ALTERNATION = "|".join(sorted(SPANISH_MONTHS.keys(), key=len, reverse=True))
+# Trailing connector before the year: "del 2020", "de 2020", "del año 2020",
+# "año 2020" — real phrasing seen in these reports.
 SPANISH_DATE_RE = re.compile(
-    r"(\d{1,2})\s*(?:del|de|-)?\s*(" + _MONTH_ALTERNATION + r")\.?\s*(?:del|de|-)?\s*(\d{2,4})",
+    r"(\d{1,2})\s*(?:del|de|-)?\s*(" + _MONTH_ALTERNATION + r")\.?\s*(?:del año|del|de|año|-)?\s*(\d{2,4})",
     re.IGNORECASE,
 )
 
@@ -439,8 +441,16 @@ def existing_filename_date(filename):
     """If a filename already starts with this pipeline's own YYYY-MM-DD_
     convention, return that date — used only as a tie-break for genuinely
     ambiguous dates, and only when it matches one of the two calendar-valid
-    readings (see the "via_existing_name" tier in main())."""
-    m = re.match(r"^(\d{4})-(\d{2})-(\d{2})_", filename or "")
+    readings (see the "via_existing_name" tier in main()). Strips a REVISAR_
+    or DUP_ prefix first — the pipeline's own quarantine/dedup prefixes,
+    which a file can still be wearing if it's come back out of _REVISAR (as
+    happened after the credit-balance incident) without being renamed."""
+    name = filename or ""
+    for known_prefix in ("REVISAR_", "DUP_"):
+        if name.startswith(known_prefix):
+            name = name[len(known_prefix):]
+            break
+    m = re.match(r"^(\d{4})-(\d{2})-(\d{2})_", name)
     if not m:
         return None
     try:
