@@ -68,6 +68,29 @@ DEFAULT_TRACKER_PATH = os.path.join("tracker", "master_tracker.xlsx")
 
 MIN_TEXT_LEN_FOR_TEXT_LAYER = 40  # below this, treat the PDF as scanned/image-only
 
+# Error text that means "the Claude API itself is unavailable/unusable" —
+# billing, auth, rate limits, an outage — as opposed to "this one document was
+# hard to read." Seeing one of these means every remaining file is about to
+# fail the same way; nothing on Drive should be touched until it's fixed.
+SYSTEMIC_ERROR_MARKERS = (
+    "credit balance", "insufficient_quota", "authentication_error",
+    "invalid x-api-key", "invalid api key", "rate_limit_error", "overloaded_error",
+)
+# Fallback for an error we didn't anticipate: this many classification
+# failures in a row (regardless of wording) is far more consistent with the
+# service itself being down than with that many individually bad documents
+# in a row, so treat it the same way.
+CONSECUTIVE_FAILURE_ABORT_THRESHOLD = 5
+
+
+def looks_systemic(err_text):
+    """True if an extraction-failure error message points at the API/account
+    itself being broken, not this one document."""
+    if not err_text:
+        return False
+    low = str(err_text).lower()
+    return any(marker in low for marker in SYSTEMIC_ERROR_MARKERS)
+
 DATE_LABELS_HINT = (
     "Fecha Toma Muestra, Muestra Tomada, Fecha de Toma, Fecha de Recoleccion, "
     "Collected, Date Collected, Specimen Collected"
@@ -608,6 +631,7 @@ def _scan_and_plan(service, client, args, apply_changes, records):
         scan_root, scan_path_prefix = year_folder, [args.year]
 
     print("Scanning Medical/ tree...")
+    consecutive_classify_failures = 0
     for f, path_parts, parent_id in walk_tree(service, scan_root, scan_path_prefix):
         current_path = "/".join(path_parts + [f["name"]])
         print(f"  {current_path}")
@@ -637,7 +661,21 @@ def _scan_and_plan(service, client, args, apply_changes, records):
             record.update(action="quarantine", reason=f"extraction failed ({method}): {err}",
                            new_path="", new_name="")
             records.append(record)
+            if looks_systemic(err):
+                raise RuntimeError(
+                    f"Classification is failing at the API/account level, not on this document "
+                    f"(saw: {err!r}). Stopping now, before touching Drive, rather than quarantining "
+                    f"every remaining file for a problem none of them actually have."
+                )
+            consecutive_classify_failures += 1
+            if consecutive_classify_failures >= CONSECUTIVE_FAILURE_ABORT_THRESHOLD:
+                raise RuntimeError(
+                    f"{consecutive_classify_failures} files in a row all failed classification — that's "
+                    f"far more consistent with the API being down than with that many individually bad "
+                    f"documents. Stopping now, before touching Drive. Last error: {err!r}"
+                )
             continue
+        consecutive_classify_failures = 0
 
         order_hint = numeric_order_hint(classification.get("fecha_secundaria_texto"))
         fecha, date_reason, via_hint = resolve_date(classification.get("fecha_texto"), order_hint)
@@ -835,9 +873,15 @@ def main():
     with open(args.log, "w", newline="", encoding="utf-8") as fh:
         w = csv.DictWriter(fh, fieldnames=fieldnames, extrasaction="ignore")
         w.writeheader()
+        # "applied" reflects whether Drive was actually touched — not just
+        # whether --apply was passed. On a fatal-error abort (below), the
+        # scan stops before step 5 ever runs a single Drive write, so nothing
+        # in `records` was actually applied, however "quarantine"/"rename" it
+        # may be labeled — the CSV should say so honestly.
+        actually_applied = apply_changes and fatal_error is None
         for r in records:
             row = dict(r)
-            row["applied"] = apply_changes and r.get("action") not in ("no_change", "ignored", "error")
+            row["applied"] = actually_applied and r.get("action") not in ("no_change", "ignored", "error")
             classification = r.get("classification") or {}
             row["fecha_texto"] = classification.get("fecha_texto", "")
             row["fecha_label"] = classification.get("fecha_label", "")
