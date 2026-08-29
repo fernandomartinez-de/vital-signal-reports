@@ -55,7 +55,13 @@ jobs:
             python clean_medical_drive.py
           fi
 
+      # Both of these run with if: always() — the cleaner now writes the log
+      # and tracker for whatever it finished before failing (e.g. a Drive
+      # permissions error partway through), and a skipped upload/commit would
+      # throw that completed work away even though it's sitting right there
+      # on disk.
       - name: Upload rename log
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: rename_log
@@ -63,6 +69,7 @@ jobs:
           if-no-files-found: warn
 
       - name: Commit updated master tracker
+        if: always()
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"

@@ -569,20 +569,14 @@ def build_master_tracker(records, tracker_path, apply_changes):
 
 
 # ── Main sweep ────────────────────────────────────────────────────────────────
-def main():
-    ap = argparse.ArgumentParser(description="Clean up the Medical Google Drive folder.")
-    ap.add_argument("--apply", action="store_true", help="Actually rename/move/quarantine on Drive. Default is dry-run.")
-    ap.add_argument("--year", default=None, help="Only sweep this year subfolder (e.g. 2024). Default: whole tree.")
-    ap.add_argument("--log", default="rename_log.csv", help="Path to write the CSV log to.")
-    ap.add_argument("--tracker", default=DEFAULT_TRACKER_PATH, help="Path to write the master tracker .xlsx to.")
-    args = ap.parse_args()
-
-    apply_changes = args.apply
-    print(f"Mode: {'APPLY (changes will be made)' if apply_changes else 'DRY RUN (no changes will be made)'}")
-
-    service = get_drive_service()
-    client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
-
+def _scan_and_plan(service, client, args, apply_changes, records):
+    """Steps 1-5: locate/create folders, walk the tree, classify every file,
+    dedupe, and apply (or just plan) the result. Appends onto the caller's
+    `records` list in place, so even if this raises partway through — a Drive
+    permissions error, a rate limit, anything unexpected — everything already
+    classified survives in the caller's list and still gets logged. Returns
+    False only for the (non-error) "requested --year folder doesn't exist"
+    case, where there is deliberately nothing to log."""
     # 1. Locate Medical/_REVISAR (create only if applying and it's genuinely missing).
     top_children = list_children(service, GDRIVE_FOLDER_ID)
     revisar = next((f for f in top_children if f["name"] == REVISAR_FOLDER_NAME
@@ -610,10 +604,9 @@ def main():
         year_folder = folder_cache.get((GDRIVE_FOLDER_ID, args.year))
         if not year_folder or str(year_folder).startswith("PLANNED:"):
             print(f"Year folder '{args.year}' not found under Medical/ — nothing to do.")
-            return
+            return False
         scan_root, scan_path_prefix = year_folder, [args.year]
 
-    records = []
     print("Scanning Medical/ tree...")
     for f, path_parts, parent_id in walk_tree(service, scan_root, scan_path_prefix):
         current_path = "/".join(path_parts + [f["name"]])
@@ -762,19 +755,22 @@ def main():
         if action == "no_change":
             r["new_path"], r["new_name"] = r["original_path"], r["original_name"]
         elif action in ("rename", "move"):
-            dest_folder_id = get_or_create_folder(
-                service,
-                get_or_create_folder(service, GDRIVE_FOLDER_ID, r["target_year"], folder_cache, apply_changes),
-                r["categoria"], folder_cache, apply_changes,
-            )
             r["new_path"] = f"{r['target_year']}/{r['categoria']}/{r['target_name']}"
             r["new_name"] = r["target_name"]
-            if apply_changes:
-                try:
+            try:
+                dest_folder_id = get_or_create_folder(
+                    service,
+                    get_or_create_folder(service, GDRIVE_FOLDER_ID, r["target_year"], folder_cache, apply_changes),
+                    r["categoria"], folder_cache, apply_changes,
+                )
+                if apply_changes:
                     move_file(service, r["file_id"], r["parent_id"], dest_folder_id, r["target_name"])
-                except Exception as e:
-                    r["action"] = "error"
-                    r["reason"] = f"Drive update failed: {e}"
+            except Exception as e:
+                # Never let one file's Drive error (permissions, a rate limit, a
+                # transient API hiccup) take down the whole run — every other
+                # file's already-computed plan is real work we don't want to lose.
+                r["action"] = "error"
+                r["reason"] = f"Drive update failed: {e}"
         elif action in ("quarantine", "duplicate"):
             prefix = "DUP_" if action == "duplicate" else "REVISAR_"
             new_name = r["original_name"] if r["original_name"].startswith(prefix) else prefix + r["original_name"]
@@ -789,7 +785,44 @@ def main():
         print(f"  [{r.get('action')}] {r['original_path']} -> {r.get('new_path', '(unchanged)')}"
               + (f"  ({r['reason']})" if r.get("reason") else ""))
 
-    # 6. Write the CSV log (always — dry run or apply).
+    return True
+
+
+def main():
+    ap = argparse.ArgumentParser(description="Clean up the Medical Google Drive folder.")
+    ap.add_argument("--apply", action="store_true", help="Actually rename/move/quarantine on Drive. Default is dry-run.")
+    ap.add_argument("--year", default=None, help="Only sweep this year subfolder (e.g. 2024). Default: whole tree.")
+    ap.add_argument("--log", default="rename_log.csv", help="Path to write the CSV log to.")
+    ap.add_argument("--tracker", default=DEFAULT_TRACKER_PATH, help="Path to write the master tracker .xlsx to.")
+    args = ap.parse_args()
+
+    apply_changes = args.apply
+    print(f"Mode: {'APPLY (changes will be made)' if apply_changes else 'DRY RUN (no changes will be made)'}")
+
+    service = get_drive_service()
+    client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+
+    records = []
+    fatal_error = None
+    try:
+        had_work = _scan_and_plan(service, client, args, apply_changes, records)
+    except Exception as e:
+        # Something unexpected blew up mid-run (Drive permissions, a rate
+        # limit, anything). Don't let it discard everything already
+        # classified — log what we have, then still fail the workflow run
+        # (below) so the problem is visible, not silently swallowed.
+        import traceback
+        traceback.print_exc()
+        fatal_error = e
+        had_work = True
+        print(f"\n{'='*50}")
+        print(f"FATAL ERROR partway through — saving the {len(records)} file(s) already processed before failing: {e}")
+
+    if not had_work:
+        return
+
+    # 6. Write the CSV log (always — dry run or apply, and even after a fatal
+    # error above, so nothing already classified is lost).
     # Includes the model's raw classification fields (fecha_texto, fecha_label,
     # categoria_confianza, notas) even for quarantined files, so a quarantine
     # reason like "unparseable_date_text" can be diagnosed from the log itself
@@ -816,7 +849,13 @@ def main():
 
     # 7. (Re)build the master tracker workbook — one tab per category. Safe on a
     # dry run too; this only writes a local .xlsx, it never touches Drive.
-    build_master_tracker(records, args.tracker, apply_changes)
+    # Guarded too, so a tracker-building problem can never take down a run
+    # that already has a good CSV log written above.
+    try:
+        build_master_tracker(records, args.tracker, apply_changes)
+        tracker_note = f"Master tracker written to {args.tracker}"
+    except Exception as e:
+        tracker_note = f"Master tracker NOT written — build failed: {e}"
 
     counts = defaultdict(int)
     for r in records:
@@ -824,9 +863,16 @@ def main():
     print(f"\n{'='*50}")
     print(f"DONE — {len(records)} files scanned. " + ", ".join(f"{k}={v}" for k, v in sorted(counts.items())))
     print(f"Log written to {args.log}")
-    print(f"Master tracker written to {args.tracker}")
+    print(tracker_note)
     if not apply_changes:
         print("This was a DRY RUN — nothing on Drive changed. Re-run with --apply to execute this plan.")
+
+    if fatal_error:
+        # The CSV/tracker above captured everything completed before the
+        # crash, but the run still needs to show as failed in CI — a partial
+        # sweep silently reported "green" would hide a real problem (Drive
+        # permissions, a bug, whatever `fatal_error` says) from view.
+        raise fatal_error
 
 
 def _error_record(f, path_parts, parent_id, reason, content_hash="", action="quarantine"):
