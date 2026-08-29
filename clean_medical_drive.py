@@ -715,6 +715,35 @@ def _scan_and_plan(service, client, args, apply_changes, records):
             elif existing and existing.isoformat() == as_md and as_dm != as_md:
                 fecha, via_existing_name = existing, "month-first"
 
+        via_report_date = False
+        if fecha is None and date_reason == "no_date_found":
+            # The document has no sample-collection-date field at all (it's
+            # printed blank on the form) — this isn't an ambiguity to resolve,
+            # there's simply nothing there. If a second, different-purpose date
+            # exists on the same page (report/creation/release date), fall back
+            # to that rather than quarantining: it's the only real date on the
+            # page, not a guess between two readings. Still goes through the
+            # same unambiguous-or-nothing resolution (including the existing
+            # filename tiebreak) as any other date — and if THAT date is itself
+            # ambiguous with no way to break the tie, this still quarantines.
+            # Enabled per your explicit call; always labeled clearly below as a
+            # report date, not a confirmed collection date, so it's never
+            # mistaken for one in the tracker.
+            secundaria_texto = classification.get("fecha_secundaria_texto")
+            if secundaria_texto:
+                sec_fecha, sec_reason, _ = resolve_date(secundaria_texto)
+                sec_via_existing = False
+                if sec_fecha is None and sec_reason == "ambiguous_day_month":
+                    existing = existing_filename_date(f["name"])
+                    sec_dm, sec_md = both_date_interpretations(secundaria_texto)
+                    if existing and existing.isoformat() == sec_dm and sec_dm != sec_md:
+                        sec_fecha, sec_via_existing = existing, "day-first"
+                    elif existing and existing.isoformat() == sec_md and sec_dm != sec_md:
+                        sec_fecha, sec_via_existing = existing, "month-first"
+                if sec_fecha is not None:
+                    fecha, via_report_date = sec_fecha, True
+                    via_existing_name = sec_via_existing or via_existing_name
+
         if fecha is None:
             reason = f"date: {date_reason}"
             if date_reason == "ambiguous_day_month":
@@ -743,7 +772,19 @@ def _scan_and_plan(service, client, args, apply_changes, records):
             resolved_date=fecha.isoformat(), categoria=categoria, proveedor=proveedor, tipo=tipo,
             target_year=target_year, target_name=target_name,
         )
-        if via_hint:
+        if via_report_date:
+            record["reason"] = (
+                f"NO COLLECTION DATE ON DOCUMENT — using report/creation date instead "
+                f"({classification.get('fecha_secundaria_label') or 'fecha_secundaria'}: "
+                f"{classification.get('fecha_secundaria_texto')!r}). This is the report date, "
+                f"not a confirmed sample-collection date."
+            )
+            if via_existing_name:
+                record["reason"] += (
+                    f" That report date was itself ambiguous on its own, but the current filename "
+                    f"({f['name']!r}) already matches the {via_existing_name} reading."
+                )
+        elif via_hint:
             record["reason"] = (
                 f"date order inferred from 2nd date on same document "
                 f"({classification.get('fecha_secundaria_texto')!r}, unambiguous as {order_hint}) "
