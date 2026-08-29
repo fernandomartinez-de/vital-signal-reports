@@ -224,6 +224,16 @@ def render_first_page_image(pdf_bytes):
     return _encode_jpeg_under_limit(images[0])
 
 
+def _extract_text(msg):
+    """Return the first text block's content, skipping any thinking/reasoning
+    blocks the model may return before its actual answer."""
+    for block in msg.content:
+        block_text = getattr(block, "text", None)
+        if block_text:
+            return block_text
+    raise ValueError("no text content block in model response")
+
+
 def classify_from_text(text, client):
     if len(text) > 15000:
         text = text[:15000]
@@ -231,7 +241,7 @@ def classify_from_text(text, client):
         model=MODEL, max_tokens=600,
         messages=[{"role": "user", "content": CLASSIFY_INSTRUCTIONS + "\n\nDocument text:\n" + text}],
     )
-    return _parse_json_object(msg.content[0].text)
+    return _parse_json_object(_extract_text(msg))
 
 
 def classify_from_image(image_bytes, media_type, client):
@@ -243,7 +253,7 @@ def classify_from_image(image_bytes, media_type, client):
             {"type": "text", "text": CLASSIFY_INSTRUCTIONS},
         ]}],
     )
-    return _parse_json_object(msg.content[0].text)
+    return _parse_json_object(_extract_text(msg))
 
 
 def _parse_json_object(raw):
@@ -588,15 +598,25 @@ def main():
               + (f"  ({r['reason']})" if r.get("reason") else ""))
 
     # 6. Write the CSV log (always — dry run or apply).
+    # Includes the model's raw classification fields (fecha_texto, fecha_label,
+    # categoria_confianza, notas) even for quarantined files, so a quarantine
+    # reason like "unparseable_date_text" can be diagnosed from the log itself
+    # instead of guessed at.
     fieldnames = ["action", "original_path", "original_name", "new_path", "new_name",
                   "resolved_date", "categoria", "proveedor", "tipo",
-                  "extraction_method", "content_hash", "reason", "file_id", "applied"]
+                  "extraction_method", "content_hash", "reason", "file_id", "applied",
+                  "fecha_texto", "fecha_label", "categoria_confianza", "notas"]
     with open(args.log, "w", newline="", encoding="utf-8") as fh:
         w = csv.DictWriter(fh, fieldnames=fieldnames, extrasaction="ignore")
         w.writeheader()
         for r in records:
             row = dict(r)
             row["applied"] = apply_changes and r.get("action") not in ("no_change", "ignored", "error")
+            classification = r.get("classification") or {}
+            row["fecha_texto"] = classification.get("fecha_texto", "")
+            row["fecha_label"] = classification.get("fecha_label", "")
+            row["categoria_confianza"] = classification.get("categoria_confianza", "")
+            row["notas"] = classification.get("notas", "")
             w.writerow(row)
 
     # 7. (Re)build the master tracker workbook — one tab per category. Safe on a
