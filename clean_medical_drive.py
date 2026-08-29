@@ -239,9 +239,10 @@ def _extract_text(msg):
     raise ValueError("no text content block in model response")
 
 
-CLASSIFY_MAX_TOKENS = 1024  # 600 was too tight — several vision replies got cut off
-                             # mid-JSON ("Unterminated string...") and a couple had
-                             # nothing left over for a text block at all.
+CLASSIFY_MAX_TOKENS = 2048  # 600, then 1024, both still occasionally got cut off
+                             # mid-JSON ("Unterminated string...") on documents that
+                             # prompted a long "notas" explanation. This is a cheap
+                             # classification call either way, so budget generously.
 
 
 def classify_from_text(text, client):
