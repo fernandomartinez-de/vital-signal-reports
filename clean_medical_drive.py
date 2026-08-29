@@ -14,45 +14,53 @@ ingest only picks up files with "_labs_" in the name. A messy filename is
 invisible to the ingest and/or gets stamped with the wrong date. Running
 this first keeps the filenames — and the timeline — clean.
 
-This script does NOT organize files into year/category folders. Folder
-placement is a human job (a family member sorts files into the right
-Medical/{year}/{category}/ folder); this script only fixes names and keeps
-the master tracker current so someone can check the next day that nothing
-got missed. As a courtesy, if a document's own content doesn't give a
-confident category, the file's CURRENT folder is trusted as a fallback
-signal for category (see step 2 below) — since a human is doing that
-placement now, it's real evidence, not a guess.
+This script does NOT organize confidently-resolved files into year/category
+folders — it renames them right where they already are. Folder placement
+for those is a human job (a family member sorts files into the right
+Medical/{year}/{category}/ folder). As a courtesy, if a document's own
+content doesn't give a confident category, the file's CURRENT folder is
+trusted as a fallback signal for category (see step 2 below) — since a
+human is doing that placement, it's real evidence, not a guess.
+
+Runs fully unattended every night via GitHub Actions' schedule trigger,
+WITH --apply — no one has to click anything for normal operation. A manual
+workflow_dispatch run still defaults to a dry run unless you check "apply",
+which is useful for previewing a change to this script itself before
+trusting it to run unattended again.
 
 Safety rules (do not relax these):
   - Never deletes anything. Ever.
   - Ambiguous dates (both day and month <= 12, so D/M vs M/D genuinely
-    can't be told apart from the text alone) are never guessed — see the
-    "needs_attention" action below. A previous script guessed and got a
-    month wrong — see rename_log history / commit messages for the case
-    this is guarding against.
-  - A file whose date and/or category can't be confidently determined
-    (even after the folder-based category fallback) is left completely
-    untouched — no rename, no move — and flagged in the tracker's "Needs
-    Attention" sheet so a human can fix the name/placement by hand. It is
-    NOT quarantined into _REVISAR; that folder is reserved for duplicates
-    only (see below).
-  - Duplicates (identical content hash) ARE still quarantined into
-    Medical/_REVISAR, prefixed DUP_ — keeping whichever copy is already
-    correctly named (or the oldest, if neither is). This is the only case
-    that still moves a file.
-  - Dry-run by default. Nothing changes on Drive unless --apply is passed.
-    Every run (dry-run or apply) writes rename_log.csv describing what it
+    can't be told apart from the text alone) are never guessed — see
+    "quarantine" below. A previous script guessed and got a month wrong —
+    see rename_log history / commit messages for the case this is
+    guarding against.
+  - A file whose date and/or category can't be confidently determined —
+    even after the folder-based category fallback — is quarantined: moved
+    into Medical/_REVISAR, prefixed REVISAR_, for a human to sort out by
+    hand. Since this now runs unattended every night, _REVISAR is the
+    entire safety net for anything the model got wrong or couldn't read —
+    when in doubt, this always quarantines rather than guesses.
+  - Duplicates (identical content hash) are also quarantined into
+    Medical/_REVISAR, prefixed DUP_ instead — keeping whichever copy is
+    already correctly named (or the oldest, if neither is).
+  - A confidently-resolved file that's already correctly named elsewhere
+    is only ever renamed in place — never moved into a year/category
+    folder, and never moved out of _REVISAR automatically once it's there
+    (files inside _REVISAR are skipped entirely on every subsequent scan,
+    so a human moving one back out is what puts it back in play).
+  - Every run (dry-run or apply) writes rename_log.csv describing what it
     did or would do.
   - Every run also (re)writes a master tracker workbook at tracker/master_tracker.xlsx
-    — one tab per year, a Resumen tab, and a "Needs Attention" tab covering
-    duplicates plus anything left unrenamed — as a standing inventory of
+    — one tab per year, a Resumen tab, and a _REVISAR tab mirroring
+    whatever's actually quarantined in Drive — as a standing inventory of
     everything in the Medical folder. This happens on dry runs too, since
     building the tracker never touches Drive.
 
 Auth: same service-account pattern as ingest_labs_gdrive.py, via the
 GDRIVE_CREDENTIALS secret. Unlike the ingest (readonly), this needs the
 service account to have Editor access on the Medical folder, because it
-renames files and moves confirmed duplicates.
+renames files and moves duplicates/quarantined files.
 """
 import os, io, sys, csv, re, json, base64, hashlib, argparse
 from datetime import date, datetime, timezone
@@ -576,25 +584,22 @@ def _write_sheet(wb, title, records):
     return ws
 
 
-TRACKER_ATTENTION_SHEET = "Needs Attention"
-
-
 def build_master_tracker(records, tracker_path, apply_changes):
     """(Re)writes the whole tracker workbook from this run's records — one tab per
-    year (by resolved document date, independent of whatever Drive folder the file
-    actually sits in — this script no longer moves files), a Resumen (summary) tab,
-    and a "Needs Attention" tab covering duplicates plus anything left unrenamed
-    (no confident date and/or category, even after the folder-fallback check).
+    year (by resolved document date, independent of whatever Drive folder a
+    confidently-resolved file actually sits in — those are only ever renamed in
+    place), a Resumen (summary) tab, and a _REVISAR tab mirroring whatever's
+    actually quarantined in Drive (unresolved date/category, plus duplicates).
     Safe to call on a dry run: it only writes the .xlsx file, never touches Drive."""
     by_year = defaultdict(list)
     by_category_count = defaultdict(int)  # informational only, summary tab
-    needs_attention = []
+    revisar = []
     for r in records:
         action = r.get("action")
         categoria = r.get("categoria")
         target_year = r.get("target_year")
-        if action in ("needs_attention", "duplicate", "error", "ignored") or not categoria or categoria not in CATEGORIES or not target_year:
-            needs_attention.append(r)
+        if action in ("quarantine", "duplicate", "error", "ignored") or not categoria or categoria not in CATEGORIES or not target_year:
+            revisar.append(r)
         else:
             by_year[target_year].append(r)
             by_category_count[categoria] += 1
@@ -616,13 +621,14 @@ def build_master_tracker(records, tracker_path, apply_changes):
         cell.font = Font(bold=True)
     for year in years_ordered:
         summary.append([year, len(by_year[year])])
-    summary.append([f"{TRACKER_ATTENTION_SHEET} (duplicates + unrenamed files)", len(needs_attention)])
+    summary.append(["_REVISAR (needs manual review)", len(revisar)])
     summary.append([])
-    summary.append(["Note", "This script only renames files — it doesn't move them into "
-                             "year/category folders anymore. Duplicates still get moved into "
-                             "Medical/_REVISAR (prefixed DUP_); everything else on the "
-                             f"'{TRACKER_ATTENTION_SHEET}' sheet is left exactly where it is — "
-                             "fix the name/folder by hand and it'll pick up cleanly next run."])
+    summary.append(["Note", "This script never guesses on an unclear date or category — anything "
+                             "it can't confidently resolve (even after checking its current folder "
+                             "as a fallback) gets moved into Medical/_REVISAR, prefixed REVISAR_. "
+                             "Duplicates land there too, prefixed DUP_. This runs automatically "
+                             "every night, so _REVISAR is the daily check: review what's in there "
+                             "and move each file to where it belongs by hand."])
     summary.append([])
     summary.append(["Category (all years)", "Files"])
     for cell in summary[summary.max_row]:
@@ -634,7 +640,7 @@ def build_master_tracker(records, tracker_path, apply_changes):
 
     for year in years_ordered:
         _write_sheet(wb, year, by_year[year])
-    _write_sheet(wb, TRACKER_ATTENTION_SHEET, needs_attention)
+    _write_sheet(wb, REVISAR_FOLDER_NAME, revisar)
 
     os.makedirs(os.path.dirname(tracker_path) or ".", exist_ok=True)
     wb.save(tracker_path)
@@ -734,8 +740,8 @@ def _scan_and_plan(service, client, args, apply_changes, records):
         }
 
         if err or not classification:
-            record.update(action="needs_attention", reason=f"extraction failed ({method}): {err}",
-                           new_path=current_path, new_name=f["name"])
+            record.update(action="quarantine", reason=f"extraction failed ({method}): {err}",
+                           new_path="", new_name="")
             records.append(record)
             if looks_systemic(err):
                 raise RuntimeError(
@@ -850,16 +856,13 @@ def _scan_and_plan(service, client, args, apply_changes, records):
 
         if problems:
             # Can't build a trustworthy target_name without both a resolved date
-            # AND a confident category — leave the file exactly as it is (no
-            # rename, no move) rather than guess. This is NOT sent to _REVISAR
-            # (that folder is duplicates-only now) — it just shows up on the
-            # tracker's "Needs Attention" sheet so a human can fix the name or
-            # move it to the right category folder by hand.
+            # AND a confident category — quarantine into _REVISAR rather than
+            # guess. This runs unattended every night now, so _REVISAR (not a
+            # human glancing at a dry-run log) is the actual safety net.
             reason = "; ".join(problems)
             if category_note and not any("category" in p for p in problems):
                 reason += f" (note: {category_note})"
-            record.update(action="needs_attention", reason=reason,
-                           new_path=current_path, new_name=f["name"])
+            record.update(action="quarantine", reason=reason, new_path="", new_name="")
             records.append(record)
             continue
 
@@ -901,11 +904,10 @@ def _scan_and_plan(service, client, args, apply_changes, records):
             record["reason"] = " | ".join(reason_bits)
         records.append(record)
 
-    # 3. Duplicate detection across the whole scanned set. This is the ONLY
-    # case that still moves a file into Medical/_REVISAR.
+    # 3. Duplicate detection across the whole scanned set.
     by_hash = defaultdict(list)
     for r in records:
-        if r.get("action") in ("needs_attention", "ignored"):
+        if r.get("action") in ("quarantine", "ignored"):
             continue
         by_hash[r["content_hash"]].append(r)
 
@@ -924,9 +926,8 @@ def _scan_and_plan(service, client, args, apply_changes, records):
             r["action"] = "duplicate"
             r["reason"] = f"duplicate of {keeper['original_path']} (identical content hash)"
 
-    # 4. Decide final action for everything not already needs_attention/duplicate.
-    # No more "move" — a file with a confidently resolved date+category just
-    # gets renamed right where it already sits.
+    # 4. Decide final action for everything not already quarantined/duplicate.
+    # No "move" for confidently-resolved files — same folder, just a new name.
     for r in records:
         if "action" in r:
             continue
@@ -935,7 +936,7 @@ def _scan_and_plan(service, client, args, apply_changes, records):
     # 5. Apply (or just log) the plan.
     print("\nApplying plan..." if apply_changes else "\nPlan (dry run — nothing will change):")
     for r in records:
-        action = r.get("action", "needs_attention")
+        action = r.get("action", "quarantine")
         if action == "no_change":
             r["new_path"], r["new_name"] = r["original_path"], r["original_name"]
         elif action == "rename":
@@ -952,8 +953,9 @@ def _scan_and_plan(service, client, args, apply_changes, records):
                     # file's already-computed plan is real work we don't want to lose.
                     r["action"] = "error"
                     r["reason"] = f"Drive update failed: {e}"
-        elif action == "duplicate":
-            new_name = r["original_name"] if r["original_name"].startswith("DUP_") else "DUP_" + r["original_name"]
+        elif action in ("quarantine", "duplicate"):
+            prefix = "DUP_" if action == "duplicate" else "REVISAR_"
+            new_name = r["original_name"] if r["original_name"].startswith(prefix) else prefix + r["original_name"]
             r["new_path"] = f"{REVISAR_FOLDER_NAME}/{new_name}"
             r["new_name"] = new_name
             if apply_changes:
@@ -962,8 +964,6 @@ def _scan_and_plan(service, client, args, apply_changes, records):
                 except Exception as e:
                     r["action"] = "error"
                     r["reason"] = f"Drive update failed: {e}"
-        elif action == "needs_attention":
-            r["new_path"], r["new_name"] = r["original_path"], r["original_name"]  # left untouched, on purpose
         print(f"  [{r.get('action')}] {r['original_path']} -> {r.get('new_path', '(unchanged)')}"
               + (f"  ({r['reason']})" if r.get("reason") else ""))
 
@@ -972,7 +972,7 @@ def _scan_and_plan(service, client, args, apply_changes, records):
 
 def main():
     ap = argparse.ArgumentParser(description="Clean up the Medical Google Drive folder.")
-    ap.add_argument("--apply", action="store_true", help="Actually rename files (and move confirmed duplicates to _REVISAR) on Drive. Default is dry-run.")
+    ap.add_argument("--apply", action="store_true", help="Actually rename files and move duplicates/unresolved files to _REVISAR on Drive. Default is dry-run. The nightly schedule always passes this.")
     ap.add_argument("--year", default=None, help="Only sweep this year subfolder (e.g. 2024). Default: whole tree.")
     ap.add_argument("--log", default="rename_log.csv", help="Path to write the CSV log to.")
     ap.add_argument("--tracker", default=DEFAULT_TRACKER_PATH, help="Path to write the master tracker .xlsx to.")
@@ -1056,7 +1056,7 @@ def main():
 
     counts = defaultdict(int)
     for r in records:
-        counts[r.get("action", "needs_attention")] += 1
+        counts[r.get("action", "quarantine")] += 1
     print(f"\n{'='*50}")
     print(f"DONE — {len(records)} files scanned. " + ", ".join(f"{k}={v}" for k, v in sorted(counts.items())))
     print(f"Log written to {args.log}")
@@ -1072,15 +1072,14 @@ def main():
         raise fatal_error
 
 
-def _error_record(f, path_parts, parent_id, reason, content_hash="", action="needs_attention"):
+def _error_record(f, path_parts, parent_id, reason, content_hash="", action="quarantine"):
     original_path = "/".join(path_parts + [f["name"]])
     return {
         "file_id": f["id"], "parent_id": parent_id,
         "original_path": original_path, "original_name": f["name"],
         "created_time": f.get("createdTime", ""), "content_hash": content_hash,
         "extraction_method": "", "mime_type": f.get("mimeType", ""),
-        "action": action, "reason": reason,
-        "new_path": original_path, "new_name": f["name"],  # left untouched
+        "action": action, "reason": reason, "new_path": "", "new_name": "",
     }
 
 

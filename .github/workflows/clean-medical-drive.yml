@@ -4,13 +4,15 @@ on:
   workflow_dispatch:
     inputs:
       apply:
-        description: 'Actually rename/move files on Drive (unchecked = dry run only)'
+        description: 'Actually rename files and move duplicates/unresolved files to _REVISAR on Drive (unchecked = dry run only). The nightly schedule always applies regardless of this.'
         type: boolean
         default: false
-  # Runs automatically (dry run only -- apply always requires a manual,
-  # explicit run) before the nightly ingest so the tracker and rename log
-  # stay fresh even if nobody triggers it by hand:
   schedule:
+    # Runs fully unattended with --apply every night, ahead of the labs
+    # ingest — no one has to click anything for normal operation. A manual
+    # workflow_dispatch run still defaults to a dry run unless "apply" is
+    # checked, which is useful for previewing a change to this script
+    # itself before trusting it to run unattended again.
     - cron: '0 7 * * *'
 
 permissions:
@@ -45,12 +47,12 @@ jobs:
             google-api-python-client \
             google-auth-httplib2
 
-      - name: Run cleaner (dry run by default)
+      - name: Run cleaner (nightly schedule always applies; manual runs are dry-run unless "apply" is checked)
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GDRIVE_CREDENTIALS: ${{ secrets.GDRIVE_CREDENTIALS }}
         run: |
-          if [ "${{ inputs.apply }}" = "true" ]; then
+          if [ "${{ github.event_name }}" = "schedule" ] || [ "${{ inputs.apply }}" = "true" ]; then
             python clean_medical_drive.py --apply
           else
             python clean_medical_drive.py
