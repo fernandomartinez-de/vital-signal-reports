@@ -15,7 +15,7 @@ import pdfplumber
 # ── Config ────────────────────────────────────────────────────────────────────
 GDRIVE_FOLDER_ID = "1_pB5M_-xqWU-jNYykK83fhZiWc5ldrS2"
 SCOPES = ["https://www.googleapis.com/auth/drive.readonly"]
-MODEL = "claude-sonnet-4-20250514"
+MODEL = "claude-sonnet-5"  # claude-sonnet-4-20250514 has been retired — every call 404'd
 
 LAB_EXTRACT_PROMPT = """You are a medical lab result parser. Extract ALL numeric lab values from the text below.
 
@@ -68,7 +68,7 @@ control_peso/grasa/musculo are the target adjustment values (negative = reduce, 
 LAB_INSERT_SQL = """
 INSERT INTO lab_results (fecha, año, archivo, proveedor, panel, marcador, valor, unidad, ref_min, ref_max, flag, estimulada, conversion_aplicada, revision_requerida)
 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NULL, false)
-ON CONFLICT DO NOTHING
+ON CONFLICT (archivo, marcador) DO NOTHING
 """
 
 INBODY_INSERT_SQL = """
@@ -170,6 +170,16 @@ def parse_filename(filename):
     estimulada = "thyrogen" in name_lower or "thryrogen" in name_lower
     return fecha, año, proveedor, estimulada
 
+# ── Claude response parsing ───────────────────────────────────────────────────
+def _extract_text(msg):
+    """Return the first text block's content, skipping any thinking/reasoning
+    blocks the model may return before its actual answer."""
+    for block in msg.content:
+        block_text = getattr(block, "text", None)
+        if block_text:
+            return block_text
+    raise ValueError("no text content block in model response")
+
 # ── Lab extraction ────────────────────────────────────────────────────────────
 def extract_text_from_pdf(pdf_bytes):
     try:
@@ -188,10 +198,10 @@ def parse_labs_with_claude(text, client):
     if len(text) > 15000:
         text = text[:15000]
     msg = client.messages.create(
-        model=MODEL, max_tokens=3000,
+        model=MODEL, max_tokens=8000,
         messages=[{"role": "user", "content": LAB_EXTRACT_PROMPT + text}]
     )
-    raw = msg.content[0].text.strip()
+    raw = _extract_text(msg).strip()
     if "```" in raw:
         for p in raw.split("```"):
             p = p.strip().lstrip("json").strip()
@@ -211,7 +221,7 @@ def parse_inbody_with_claude(image_bytes, mime_type, client):
             {"type": "text", "text": INBODY_EXTRACT_PROMPT}
         ]}]
     )
-    raw = msg.content[0].text.strip()
+    raw = _extract_text(msg).strip()
     if "```" in raw:
         for p in raw.split("```"):
             p = p.strip().lstrip("json").strip()
