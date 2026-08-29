@@ -43,7 +43,7 @@ from collections import defaultdict
 
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseDownload
+from googleapiclient.http import MediaIoBaseDownload, MediaFileUpload
 import anthropic
 import pdfplumber
 from pdf2image import convert_from_bytes
@@ -613,6 +613,40 @@ def build_master_tracker(records, tracker_path, apply_changes):
     wb.save(tracker_path)
 
 
+TRACKER_DRIVE_NAME = "master_tracker.xlsx"
+XLSX_MIME_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
+def upload_tracker_to_drive(service, tracker_path, medical_folder_id):
+    """Uploads/updates a loose copy of the tracker workbook directly in the Medical
+    Drive folder root, right next to the year folders — so it's visible from Drive
+    itself, not just in the GitHub repo. Looks for an existing file with this exact
+    name directly in that folder (not nested inside a year/category subfolder) and
+    overwrites its content in place; creates it on the first run. This is purely a
+    courtesy copy of the inventory — it never renames/moves/deletes anything, so
+    it's safe to do on a dry run too, same as writing the local .xlsx."""
+    resp = service.files().list(
+        q=(f"name = '{TRACKER_DRIVE_NAME}' and '{medical_folder_id}' in parents "
+           f"and trashed = false"),
+        fields="files(id, name)",
+        spaces="drive",
+    ).execute()
+    existing = resp.get("files", [])
+
+    media = MediaFileUpload(tracker_path, mimetype=XLSX_MIME_TYPE, resumable=False)
+    if existing:
+        file_id = existing[0]["id"]
+        service.files().update(fileId=file_id, media_body=media).execute()
+        return file_id
+    else:
+        created = service.files().create(
+            body={"name": TRACKER_DRIVE_NAME, "parents": [medical_folder_id], "mimeType": XLSX_MIME_TYPE},
+            media_body=media,
+            fields="id",
+        ).execute()
+        return created["id"]
+
+
 # ── Main sweep ────────────────────────────────────────────────────────────────
 def _scan_and_plan(service, client, args, apply_changes, records):
     """Steps 1-5: locate/create folders, walk the tree, classify every file,
@@ -954,7 +988,7 @@ def main():
             row["notas"] = classification.get("notas", "")
             w.writerow(row)
 
-    # 7. (Re)build the master tracker workbook — one tab per category. Safe on a
+    # 7. (Re)build the master tracker workbook — one tab per year. Safe on a
     # dry run too; this only writes a local .xlsx, it never touches Drive.
     # Guarded too, so a tracker-building problem can never take down a run
     # that already has a good CSV log written above.
@@ -963,6 +997,15 @@ def main():
         tracker_note = f"Master tracker written to {args.tracker}"
     except Exception as e:
         tracker_note = f"Master tracker NOT written — build failed: {e}"
+    else:
+        # Also drop/update a loose copy directly in the Medical Drive folder,
+        # next to the year folders — separately guarded so a Drive-side upload
+        # hiccup can't discard the good local/git copy above.
+        try:
+            upload_tracker_to_drive(service, args.tracker, GDRIVE_FOLDER_ID)
+            tracker_note += " (also updated in Drive)"
+        except Exception as e:
+            tracker_note += f" (Drive copy NOT updated: {e})"
 
     counts = defaultdict(int)
     for r in records:
